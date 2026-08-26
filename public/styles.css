@@ -1,0 +1,683 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #1b1f24;
+  --muted: #6a737d;
+  --line: #dbe1e8;
+  --accent: #1f7a5a;
+  --accent-dark: #165c43;
+  --warning: #a95513;
+  --danger: #b42318;
+  --radius: 8px;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+}
+
+.sidebar {
+  background: #16201c;
+  color: #f8faf9;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #12201b;
+  background: #9be7c7;
+  font-weight: 800;
+}
+
+.brand small {
+  display: block;
+  color: #b9c7c0;
+  margin-top: 2px;
+}
+
+.identity {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid #33463e;
+  border-radius: var(--radius);
+}
+
+.identity small {
+  color: #b9c7c0;
+}
+
+.nav {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-item {
+  border: 0;
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  color: #dfe8e4;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-item.active,
+.nav-item:hover {
+  background: #24342d;
+  color: #ffffff;
+}
+
+.workspace {
+  padding: 28px;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) 1fr;
+  gap: 18px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.wide {
+  min-width: 0;
+}
+
+.split > [hidden] + .wide {
+  grid-column: 1 / -1;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 11px;
+  color: var(--ink);
+  background: #fff;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 82px;
+}
+
+button {
+  min-height: 40px;
+}
+
+.primary,
+.secondary,
+.ghost,
+.danger {
+  border-radius: 7px;
+  padding: 10px 13px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.compact {
+  min-height: 30px;
+  margin-top: 7px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.primary {
+  color: #fff;
+  background: var(--accent);
+}
+
+.primary:hover {
+  background: var(--accent-dark);
+}
+
+.secondary {
+  color: var(--accent-dark);
+  background: #e8f6ef;
+  border-color: #bde4d0;
+}
+
+.ghost {
+  color: var(--ink);
+  background: #fff;
+  border-color: var(--line);
+}
+
+.danger {
+  color: #fff;
+  background: var(--danger);
+}
+
+.table-wrap {
+  overflow: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 680px;
+}
+
+.vehicles-table {
+  min-width: 540px;
+}
+
+.waybill-layout {
+  grid-template-columns: 1fr;
+}
+
+.waybill-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+}
+
+.waybill-form h2 {
+  grid-column: 1 / -1;
+}
+
+.waybill-form > button {
+  justify-self: start;
+  min-width: 180px;
+}
+
+th,
+td {
+  padding: 11px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  font-size: 14px;
+}
+
+th {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #edf1f5;
+  color: #344054;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.badge.free {
+  background: #e8f6ef;
+  color: #176045;
+}
+
+.badge.pending {
+  background: #fff3e6;
+  color: var(--warning);
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+}
+
+.row-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 13px;
+  display: grid;
+  gap: 10px;
+}
+
+.row-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.waybill-actions {
+  margin-top: 6px;
+}
+
+.revision-count {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.edit-dialog {
+  width: min(460px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgb(20 30 25 / 20%);
+}
+
+.edit-dialog::backdrop {
+  background: rgb(12 20 16 / 48%);
+}
+
+.edit-dialog form {
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.dialog-content {
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.files-dialog {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.file-upload {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.file-list {
+  display: grid;
+  gap: 8px;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.file-details {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.file-details strong {
+  overflow-wrap: anywhere;
+}
+
+.file-details span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dialog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.icon-button {
+  width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.dialog-actions {
+  justify-content: flex-end;
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.report-actions {
+  justify-content: flex-end;
+}
+
+.notice {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: #e8f6ef;
+  border: 1px solid #bde4d0;
+  color: #165c43;
+}
+
+.notice.error {
+  background: #fff0f0;
+  border-color: #ffc9c9;
+  color: #9f1d16;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    padding: 18px;
+    gap: 16px;
+  }
+
+  .nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .split,
+  .topbar,
+  .filters-grid {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .waybill-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .workspace {
+    padding: 20px 16px;
+  }
+
+  .users-table {
+    min-width: 0;
+  }
+
+  .users-table thead {
+    display: none;
+  }
+
+  .users-table,
+  .users-table tbody,
+  .users-table tr,
+  .users-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .users-table tr {
+    padding: 13px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .users-table td {
+    padding: 5px 0;
+    border: 0;
+  }
+
+  .users-table td:nth-child(2)::before {
+    content: "Bitrix24: ";
+    color: var(--muted);
+  }
+
+  .users-table td:last-child button {
+    width: 100%;
+  }
+
+  .vehicles-table {
+    min-width: 0;
+  }
+
+  .vehicles-table thead {
+    display: none;
+  }
+
+  .vehicles-table,
+  .vehicles-table tbody,
+  .vehicles-table tr,
+  .vehicles-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .vehicles-table tr {
+    padding: 13px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .vehicles-table td {
+    padding: 6px 0;
+    border: 0;
+  }
+
+  .vehicles-table td:not(:first-child, :last-child) {
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .vehicles-table td:nth-child(2)::before {
+    content: "Статус";
+    color: var(--muted);
+  }
+
+  .vehicles-table td:nth-child(3)::before {
+    content: "Водитель";
+    color: var(--muted);
+  }
+
+  .vehicles-table td:nth-child(4)::before {
+    content: "Старт";
+    color: var(--muted);
+  }
+
+  .vehicles-table td:last-child {
+    padding-top: 10px;
+  }
+
+  .vehicles-table .table-actions button {
+    flex: 1 1 120px;
+  }
+
+  .waybill-form {
+    grid-template-columns: 1fr;
+  }
+
+  .waybill-form > button {
+    width: 100%;
+  }
+
+  .waybills-table {
+    min-width: 0;
+  }
+
+  .waybills-table thead {
+    display: none;
+  }
+
+  .waybills-table,
+  .waybills-table tbody,
+  .waybills-table tr,
+  .waybills-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .waybills-table tr {
+    padding: 13px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .waybills-table td {
+    padding: 6px 0;
+    border: 0;
+  }
+
+  .waybills-table td {
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .waybills-table td:nth-child(1)::before {
+    content: "Дата";
+    color: var(--muted);
+  }
+
+  .waybills-table td:nth-child(2)::before {
+    content: "Автомобиль";
+    color: var(--muted);
+  }
+
+  .waybills-table td:nth-child(3)::before {
+    content: "Водитель";
+    color: var(--muted);
+  }
+
+  .waybills-table td:nth-child(4)::before {
+    content: "Пробег";
+    color: var(--muted);
+  }
+
+  .waybills-table td:nth-child(5)::before {
+    content: "Топливо";
+    color: var(--muted);
+  }
+
+  .waybills-table td:nth-child(6)::before {
+    content: "Статус";
+    color: var(--muted);
+  }
+
+  .waybills-table .waybill-actions {
+    grid-column: 1 / -1;
+  }
+
+  .file-upload {
+    grid-template-columns: 1fr;
+  }
+
+  .file-upload button {
+    width: 100%;
+  }
+
+  .file-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

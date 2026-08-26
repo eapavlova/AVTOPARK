@@ -1,0 +1,52 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      APP_BASE_URL: ${APP_BASE_URL:?APP_BASE_URL is required}
+      AUTH_MODE: bitrix
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      SEED_DEMO_DATA: "false"
+      FILE_STORAGE_DIR: /app/data/files
+      FILE_MAX_BYTES: ${FILE_MAX_BYTES:-10485760}
+      BITRIX_CLIENT_ID: ${BITRIX_CLIENT_ID:?BITRIX_CLIENT_ID is required}
+      BITRIX_CLIENT_SECRET: ${BITRIX_CLIENT_SECRET:?BITRIX_CLIENT_SECRET is required}
+      BITRIX_ALLOWED_DOMAINS: ${BITRIX_ALLOWED_DOMAINS:?BITRIX_ALLOWED_DOMAINS is required}
+      BITRIX_TOKEN_ENCRYPTION_KEY: ${BITRIX_TOKEN_ENCRYPTION_KEY:?BITRIX_TOKEN_ENCRYPTION_KEY is required}
+      BITRIX_VEHICLE_ENTITY_TYPE_ID: ${BITRIX_VEHICLE_ENTITY_TYPE_ID:?BITRIX_VEHICLE_ENTITY_TYPE_ID is required}
+      BITRIX_VEHICLE_FIELD_MAP: ${BITRIX_VEHICLE_FIELD_MAP:?BITRIX_VEHICLE_FIELD_MAP is required}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/ready').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    volumes:
+      - autopark_files:/app/data/files
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-autopark}
+      POSTGRES_USER: ${POSTGRES_USER:-autopark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - autopark_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  autopark_postgres_data:
+  autopark_files:
