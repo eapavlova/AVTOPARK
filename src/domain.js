@@ -2,7 +2,8 @@ export const VehicleStatus = Object.freeze({
   FREE: 'FREE',
   ASSIGNED: 'ASSIGNED',
   TRANSFER_PENDING: 'TRANSFER_PENDING',
-  RETURN_PENDING: 'RETURN_PENDING'
+  RETURN_PENDING: 'RETURN_PENDING',
+  SOLD: 'SOLD'
 });
 
 export const TransferType = Object.freeze({
@@ -49,6 +50,7 @@ export function createEmptyState() {
     vehicles: [],
     assignments: [],
     transfers: [],
+    transferFiles: [],
     waybills: [],
     waybillRevisions: [],
     waybillFiles: [],
@@ -59,6 +61,7 @@ export function createEmptyState() {
       vehicle: 0,
       assignment: 0,
       transfer: 0,
+      transferFile: 0,
       waybill: 0,
       waybillRevision: 0,
       waybillFile: 0,
@@ -200,6 +203,11 @@ export function addVehicle(state, command) {
   }
   const allocation = allocateId(state, 'vehicle', 'veh');
 
+  const startAt = requireDate(command.startAt, 'startAt');
+  if (startAt > new Date().toISOString().slice(0, 10)) {
+    throw new DomainError('Дата запуска автомобиля не может быть в будущем.');
+  }
+
   const vehicle = {
     id: allocation.id,
     portalId: actor.portalId ?? 'local',
@@ -209,9 +217,10 @@ export function addVehicle(state, command) {
     currentDriverId: null,
     startOdometer: command.startOdometer,
     startFuel: command.startFuel,
-    startAt: required(command.startAt, 'startAt'),
+    startAt,
     startRecordedBy: command.actorId,
     startRecordedAt: new Date().toISOString(),
+    soldAt: null,
     bitrixItemId: command.bitrixItemId ?? null
   };
 
@@ -246,6 +255,34 @@ export function updateVehicleReference(state, command) {
   });
 }
 
+export function updateVehicleInitialMetrics(state, command) {
+  assertRole(state, command.actorId, [Roles.FLEET_MANAGER, Roles.ADMIN]);
+  const actor = getUser(state, command.actorId);
+  const vehicle = getVehicle(state, command.vehicleId);
+  assertSamePortal(actor, vehicle);
+  if (state.waybills.some((waybill) => waybill.vehicleId === vehicle.id)) {
+    throw new DomainError('Стартовые показатели нельзя изменить: по автомобилю уже создан путевой лист.');
+  }
+
+  requireNumber(command.startOdometer, 'startOdometer');
+  requireNumber(command.startFuel, 'startFuel');
+  if (command.startOdometer < 0 || command.startFuel < 0) {
+    throw new DomainError('Стартовый пробег и топливо не могут быть отрицательными.');
+  }
+  if (vehicle.startOdometer === command.startOdometer && vehicle.startFuel === command.startFuel) return state;
+
+  return appendAudit(updateVehicle(state, vehicle.id, {
+    startOdometer: command.startOdometer,
+    startFuel: command.startFuel
+  }), command.actorId, 'VEHICLE_INITIAL_METRICS_UPDATED', {
+    vehicleId: vehicle.id,
+    previousStartOdometer: vehicle.startOdometer,
+    previousStartFuel: vehicle.startFuel,
+    startOdometer: command.startOdometer,
+    startFuel: command.startFuel
+  });
+}
+
 export function assignFreeVehicle(state, command) {
   assertSameActor(command.actorId, command.driverId);
   assertRole(state, command.actorId, [Roles.DRIVER, Roles.FLEET_MANAGER]);
@@ -253,8 +290,8 @@ export function assignFreeVehicle(state, command) {
   const vehicle = getVehicle(state, command.vehicleId);
   assertSamePortal(driver, vehicle);
 
-  if (driver.role === Roles.DRIVER && hasActiveVehicle(state, driver.id)) {
-    throw new DomainError('Обычный водитель уже имеет активный автомобиль.');
+  if (hasActiveVehicle(state, driver.id)) {
+    throw new DomainError('Водитель уже имеет активный автомобиль.');
   }
   if (vehicle.status !== VehicleStatus.FREE) {
     throw new DomainError('Автомобиль уже не свободен.');
@@ -297,10 +334,10 @@ export function initiateDriverTransfer(state, command) {
     throw new DomainError('Нельзя передать автомобиль самому себе.');
   }
   if (![Roles.DRIVER, Roles.FLEET_MANAGER].includes(toDriver.role)) {
-    throw new DomainError('Получатель не может управлять автомобилем.');
+    throw new DomainError('Получателем передачи может быть только водитель или заведующий автопарком.');
   }
 
-  if (toDriver.role === Roles.DRIVER && hasActiveVehicle(state, toDriver.id)) {
+  if (hasActiveVehicle(state, toDriver.id)) {
     throw new DomainError('Принимающий водитель уже имеет активный автомобиль.');
   }
 
@@ -315,7 +352,8 @@ export function initiateDriverTransfer(state, command) {
     createdBy: command.fromDriverId,
     createdAt: new Date().toISOString(),
     resolvedAt: null,
-    reason: null
+    reason: null,
+    handover: normalizeTransferHandover(command)
   };
 
   const updated = updateVehicle(allocation.state, vehicle.id, { status: VehicleStatus.TRANSFER_PENDING });
@@ -338,7 +376,7 @@ export function acceptDriverTransfer(state, command) {
     throw new DomainError('Состояние автомобиля изменилось, передачу нельзя принять.');
   }
   const toDriver = getUser(state, transfer.toDriverId);
-  if (toDriver.role === Roles.DRIVER && hasActiveVehicle(state, toDriver.id)) {
+  if (hasActiveVehicle(state, toDriver.id)) {
     throw new DomainError('Принимающий водитель уже имеет активный автомобиль.');
   }
 
@@ -406,10 +444,51 @@ export function rejectDriverTransfer(state, command) {
 export function initiateReturnToFleet(state, command) {
   assertSameActor(command.actorId, command.driverId);
   assertRole(state, command.actorId, [Roles.DRIVER, Roles.FLEET_MANAGER]);
+  const driver = getUser(state, command.driverId);
   const vehicle = getVehicle(state, command.vehicleId);
   assertCurrentDriver(vehicle, command.driverId);
   if (vehicle.status !== VehicleStatus.ASSIGNED) {
     throw new DomainError('Для автомобиля уже выполняется другая операция.');
+  }
+
+  const returnedAt = command.returnedAt ?? command.resolvedAt ?? new Date().toISOString();
+  assertWaybillsCompleteForReturn(state, vehicle.id, driver.id, returnedAt);
+
+  if (driver.role === Roles.FLEET_MANAGER) {
+    const allocation = allocateId(state, 'transfer', 'trn');
+    const closedAssignments = allocation.state.assignments.map((assignment) => {
+      if (assignment.vehicleId === vehicle.id && assignment.endAt === null) {
+        return { ...assignment, endAt: returnedAt };
+      }
+      return assignment;
+    });
+    const transfer = {
+      id: allocation.id,
+      type: TransferType.RETURN_TO_FLEET,
+      status: TransferStatus.CONFIRMED,
+      vehicleId: vehicle.id,
+      fromDriverId: command.driverId,
+      toDriverId: null,
+      createdBy: command.driverId,
+      createdAt: returnedAt,
+      resolvedAt: returnedAt,
+      reason: command.note ?? null,
+      handover: normalizeTransferHandover(command)
+    };
+    const withVehicle = updateVehicle(allocation.state, vehicle.id, {
+      status: VehicleStatus.FREE,
+      currentDriverId: null
+    });
+    return appendAudit({
+      ...withVehicle,
+      assignments: closedAssignments,
+      transfers: [...withVehicle.transfers, transfer]
+    }, command.actorId, 'RETURN_CONFIRMED', {
+      transferId: transfer.id,
+      vehicleId: vehicle.id,
+      selfReturn: true,
+      note: command.note ?? null
+    });
   }
 
   const allocation = allocateId(state, 'transfer', 'trn');
@@ -421,9 +500,10 @@ export function initiateReturnToFleet(state, command) {
     fromDriverId: command.driverId,
     toDriverId: null,
     createdBy: command.driverId,
-    createdAt: new Date().toISOString(),
+    createdAt: returnedAt,
     resolvedAt: null,
-    reason: command.note ?? null
+    reason: command.note ?? null,
+    handover: normalizeTransferHandover(command)
   };
 
   const updated = updateVehicle(allocation.state, vehicle.id, { status: VehicleStatus.RETURN_PENDING });
@@ -435,9 +515,13 @@ export function initiateReturnToFleet(state, command) {
 
 export function confirmReturnToFleet(state, command) {
   assertRole(state, command.actorId, [Roles.FLEET_MANAGER, Roles.ADMIN]);
+  const actor = getUser(state, command.actorId);
   const transfer = getTransfer(state, command.transferId);
   if (transfer.type !== TransferType.RETURN_TO_FLEET || transfer.status !== TransferStatus.PENDING) {
     throw new DomainError('Сдача в автопарк недоступна для подтверждения.');
+  }
+  if (actor.role === Roles.FLEET_MANAGER && transfer.fromDriverId === actor.id) {
+    throw new DomainError('Заведующему автопарком не требуется подтверждать собственную сдачу автомобиля.');
   }
   const vehicle = getVehicle(state, transfer.vehicleId);
   if (vehicle.status !== VehicleStatus.RETURN_PENDING || vehicle.currentDriverId !== transfer.fromDriverId) {
@@ -466,25 +550,58 @@ export function confirmReturnToFleet(state, command) {
   }, command.actorId, 'RETURN_CONFIRMED', { transferId: transfer.id, vehicleId: transfer.vehicleId });
 }
 
+export function sellVehicle(state, command) {
+  assertRole(state, command.actorId, [Roles.FLEET_MANAGER, Roles.ADMIN]);
+  const actor = getUser(state, command.actorId);
+  const vehicle = getVehicle(state, command.vehicleId);
+  assertSamePortal(actor, vehicle);
+  const soldAt = requireDate(command.soldAt ?? command.retiredAt, 'soldAt');
+
+  if (vehicle.status !== VehicleStatus.FREE) {
+    throw new DomainError('Продать можно только свободный автомобиль, принятый в автопарк.');
+  }
+  const unresolvedWaybill = state.waybills.find((waybill) =>
+    waybill.vehicleId === vehicle.id && ![WaybillStatus.PROCESSED, WaybillStatus.REJECTED].includes(waybill.status)
+  );
+  if (unresolvedWaybill) {
+    throw new DomainError('Перед продажей необходимо завершить все путевые листы автомобиля.');
+  }
+  const laterWaybill = state.waybills.find((waybill) =>
+    waybill.vehicleId === vehicle.id && waybill.waybillDate > soldAt
+  );
+  if (laterWaybill) {
+    throw new DomainError('Дата продажи не может быть раньше уже созданного путевого листа.');
+  }
+
+  return appendAudit(updateVehicle(state, vehicle.id, {
+    status: VehicleStatus.SOLD,
+    currentDriverId: null,
+    soldAt
+  }), command.actorId, 'VEHICLE_SOLD', { vehicleId: vehicle.id, soldAt });
+}
+
 export function createWaybill(state, command) {
   assertSameActor(command.actorId, command.driverId);
   assertRole(state, command.actorId, [Roles.DRIVER, Roles.FLEET_MANAGER]);
   const vehicle = getVehicle(state, command.vehicleId);
   const driver = getUser(state, command.driverId);
   assertSamePortal(driver, vehicle);
-  if (hasDriverCorrectionWaybill(state, driver.id)) {
-    throw new DomainError('У водителя есть путевой лист на корректировке.');
-  }
-  requireNumber(command.distanceKm, 'distanceKm');
-  requireNumber(command.fuelAdded, 'fuelAdded');
-  requireNumber(command.fuelSpent, 'fuelSpent');
-  if (command.distanceKm < 0 || command.fuelAdded < 0 || command.fuelSpent < 0) {
-    throw new DomainError('Пробег и топливные значения не могут быть отрицательными.');
-  }
   const waybillDate = requireDate(command.waybillDate, 'waybillDate');
+  const soldAt = vehicle.soldAt ?? vehicle.retiredAt;
+  if (soldAt && waybillDate > soldAt) {
+    throw new DomainError('После даты продажи автомобиля путевой лист создавать нельзя.');
+  }
+  if (vehicle.currentDriverId !== driver.id || vehicle.status !== VehicleStatus.ASSIGNED) {
+    throw new DomainError('Путевой лист можно создать только по автомобилю, который сейчас закреплен за водителем.');
+  }
   if (!wasAssignedOnDate(state, vehicle.id, driver.id, waybillDate)) {
     throw new DomainError('На дату путевого листа автомобиль не был закреплен за водителем.');
   }
+  if (hasDriverCorrectionWaybill(state, driver.id)) {
+    throw new DomainError('У водителя есть путевой лист на корректировке.');
+  }
+  const odometerInput = normalizeWaybillOdometerInput(state, vehicle.id, waybillDate, command);
+  const fuelInput = normalizeWaybillFuelInput(state, vehicle.id, waybillDate, command);
 
   const allocation = allocateId(state, 'waybill', 'way');
   const waybill = {
@@ -494,9 +611,11 @@ export function createWaybill(state, command) {
     waybillDate,
     createdAt: new Date().toISOString(),
     status: WaybillStatus.DRAFT,
-    distanceKm: command.distanceKm,
-    fuelAdded: command.fuelAdded,
-    fuelSpent: command.fuelSpent,
+    distanceKm: odometerInput.distanceKm,
+    reportedEndOdometer: odometerInput.reportedEndOdometer,
+    fuelAdded: fuelInput.fuelAdded,
+    fuelSpent: fuelInput.fuelSpent,
+    reportedEndFuel: fuelInput.reportedEndFuel,
     startOdometer: null,
     endOdometer: null,
     startFuel: null,
@@ -521,20 +640,19 @@ export function updateWaybill(state, command) {
   if (![WaybillStatus.DRAFT, WaybillStatus.DRIVER_CORRECTION].includes(waybill.status)) {
     throw new DomainError('Путевой лист в этом статусе нельзя редактировать.');
   }
-  requireNumber(command.distanceKm, 'distanceKm');
-  requireNumber(command.fuelAdded, 'fuelAdded');
-  requireNumber(command.fuelSpent, 'fuelSpent');
-  if (command.distanceKm < 0 || command.fuelAdded < 0 || command.fuelSpent < 0) {
-    throw new DomainError('Пробег и топливные значения не могут быть отрицательными.');
-  }
+  const odometerInput = normalizeWaybillOdometerInput(state, waybill.vehicleId, waybill.waybillDate, command, waybill.id);
+  const fuelInput = normalizeWaybillFuelInput(state, waybill.vehicleId, waybill.waybillDate, command, waybill.id);
   const after = {
-    distanceKm: command.distanceKm,
-    fuelAdded: command.fuelAdded,
-    fuelSpent: command.fuelSpent,
+    distanceKm: odometerInput.distanceKm,
+    reportedEndOdometer: odometerInput.reportedEndOdometer,
+    fuelAdded: fuelInput.fuelAdded,
+    fuelSpent: fuelInput.fuelSpent,
+    reportedEndFuel: fuelInput.reportedEndFuel,
     note: normalizeNote(command.note)
   };
   const before = waybillRevisionData(waybill);
-  if (Object.keys(after).every((key) => after[key] === before[key])) return state;
+  const comparableAfter = waybillRevisionData({ ...waybill, ...after });
+  if (Object.keys(comparableAfter).every((key) => comparableAfter[key] === before[key])) return state;
 
   const allocation = allocateId(state, 'waybillRevision', 'rev');
   const revision = {
@@ -543,7 +661,7 @@ export function updateWaybill(state, command) {
     actorId: actor.id,
     waybillStatus: waybill.status,
     before,
-    after,
+    after: comparableAfter,
     createdAt: new Date().toISOString()
   };
   const updated = {
@@ -643,14 +761,24 @@ export function recalculateVehicleWaybills(state, vehicleId) {
       continue;
     }
 
-    const endOdometer = previousOdometer + waybill.distanceKm;
-    const endFuel = previousFuel + waybill.fuelAdded - waybill.fuelSpent;
-    if (endOdometer < 0 || endFuel < 0) {
+    const usesReportedEndOdometer = Number.isFinite(waybill.reportedEndOdometer);
+    const endOdometer = usesReportedEndOdometer
+      ? waybill.reportedEndOdometer
+      : previousOdometer + waybill.distanceKm;
+    const distanceKm = endOdometer - previousOdometer;
+    const usesReportedEndFuel = Number.isFinite(waybill.reportedEndFuel);
+    const endFuel = usesReportedEndFuel
+      ? waybill.reportedEndFuel
+      : previousFuel + waybill.fuelAdded - waybill.fuelSpent;
+    const fuelSpent = previousFuel + waybill.fuelAdded - endFuel;
+    if (distanceKm < 0 || endOdometer < 0 || fuelSpent < 0 || endFuel < 0) {
       throw new DomainError('Каскадный перерасчет остановлен: итоговый пробег или топливо стали отрицательными.');
     }
 
     const recalculated = {
       ...waybill,
+      distanceKm,
+      fuelSpent,
       startOdometer: previousOdometer,
       endOdometer,
       startFuel: previousFuel,
@@ -736,6 +864,24 @@ function getTransfer(state, transferId) {
   return transfer;
 }
 
+function normalizeTransferHandover(command) {
+  if (!command.handover) return null;
+  const odometer = Number(command.handover.odometer);
+  if (!Number.isFinite(odometer) || odometer < 0) {
+    throw new DomainError('Укажите корректный текущий пробег автомобиля.');
+  }
+  const documents = Array.isArray(command.handover.documents) ? command.handover.documents : [];
+  const allowedDocuments = new Set(['STS', 'SERVICE_BOOK', 'FUEL_CARD', 'INSURANCE_POLICY']);
+  if (documents.some((item) => !allowedDocuments.has(item))) {
+    throw new DomainError('Указан неизвестный передаваемый документ.');
+  }
+  return {
+    odometer,
+    documents: [...new Set(documents)],
+    comment: String(command.handover.comment ?? '').trim().slice(0, 2000)
+  };
+}
+
 function getWaybill(state, waybillId) {
   const waybill = state.waybills.find((item) => item.id === waybillId);
   if (!waybill) throw new DomainError('Путевой лист не найден.');
@@ -781,6 +927,136 @@ function hasDriverCorrectionWaybill(state, driverId) {
   return state.waybills.some((waybill) =>
     waybill.driverId === driverId && waybill.status === WaybillStatus.DRIVER_CORRECTION
   );
+}
+
+function assertWaybillsCompleteForReturn(state, vehicleId, driverId, returnedAt) {
+  const missingDates = missingWaybillDatesForReturn(state, vehicleId, driverId, returnedAt);
+  if (missingDates.length > 0) {
+    throw new DomainError(`Нельзя сдать автомобиль: не созданы путевые листы за даты ${formatDateList(missingDates)}.`);
+  }
+}
+
+function missingWaybillDatesForReturn(state, vehicleId, driverId, returnedAt) {
+  const assignment = state.assignments.find((item) =>
+    item.vehicleId === vehicleId && item.driverId === driverId && item.endAt === null
+  );
+  if (!assignment) throw new DomainError('Активное закрепление автомобиля не найдено.');
+
+  const startDate = datePartFromInstant(assignment.startAt, 'assignedAt');
+  const endDate = datePartFromInstant(returnedAt, 'returnedAt');
+  if (endDate < startDate) {
+    throw new DomainError('Дата сдачи автомобиля не может быть раньше даты его получения.');
+  }
+
+  const coveredDates = new Set(state.waybills
+    .filter((waybill) =>
+      waybill.vehicleId === vehicleId
+      && waybill.driverId === driverId
+      && waybill.status !== WaybillStatus.REJECTED
+    )
+    .map((waybill) => waybill.waybillDate));
+
+  return datesBetween(startDate, endDate).filter((date) => !coveredDates.has(date));
+}
+
+function normalizeWaybillOdometerInput(state, vehicleId, waybillDate, command, excludedWaybillId = null) {
+  const hasEndOdometer = command.endOdometer !== undefined
+    && command.endOdometer !== null
+    && command.endOdometer !== '';
+  if (!hasEndOdometer) {
+    requireNumber(command.distanceKm, 'distanceKm');
+    if (command.distanceKm < 0) {
+      throw new DomainError('Пробег и топливные значения не могут быть отрицательными.');
+    }
+    return {
+      distanceKm: command.distanceKm,
+      reportedEndOdometer: null
+    };
+  }
+
+  requireNumber(command.endOdometer, 'endOdometer');
+  const startOdometer = previousOdometerBeforeWaybill(state, vehicleId, waybillDate, excludedWaybillId);
+  if (command.endOdometer < startOdometer) {
+    throw new DomainError('Показание спидометра на конец дня не может быть меньше начального пробега.');
+  }
+  return {
+    distanceKm: command.endOdometer - startOdometer,
+    reportedEndOdometer: command.endOdometer
+  };
+}
+
+function normalizeWaybillFuelInput(state, vehicleId, waybillDate, command, excludedWaybillId = null) {
+  requireNumber(command.fuelAdded, 'fuelAdded');
+  if (command.fuelAdded < 0) {
+    throw new DomainError('Пробег и топливные значения не могут быть отрицательными.');
+  }
+  const hasEndFuel = command.endFuel !== undefined
+    && command.endFuel !== null
+    && command.endFuel !== '';
+  if (!hasEndFuel) {
+    requireNumber(command.fuelSpent, 'fuelSpent');
+    if (command.fuelSpent < 0) {
+      throw new DomainError('Пробег и топливные значения не могут быть отрицательными.');
+    }
+    return {
+      fuelAdded: command.fuelAdded,
+      fuelSpent: command.fuelSpent,
+      reportedEndFuel: null
+    };
+  }
+
+  requireNumber(command.endFuel, 'endFuel');
+  const startFuel = previousFuelBeforeWaybill(state, vehicleId, waybillDate, excludedWaybillId);
+  if (command.endFuel < 0) {
+    throw new DomainError('Остаток топлива в баке на конец дня не может быть отрицательным.');
+  }
+  if (command.endFuel > startFuel + command.fuelAdded) {
+    throw new DomainError('Остаток топлива в баке на конец дня не может быть больше начального остатка и заправленного топлива.');
+  }
+  return {
+    fuelAdded: command.fuelAdded,
+    fuelSpent: startFuel + command.fuelAdded - command.endFuel,
+    reportedEndFuel: command.endFuel
+  };
+}
+
+function previousOdometerBeforeWaybill(state, vehicleId, waybillDate, excludedWaybillId = null) {
+  const vehicle = getVehicle(state, vehicleId);
+  const previousWaybill = state.waybills
+    .filter((waybill) =>
+      waybill.vehicleId === vehicleId
+      && waybill.id !== excludedWaybillId
+      && waybill.status !== WaybillStatus.REJECTED
+      && waybill.waybillDate < waybillDate
+    )
+    .sort(compareWaybills)
+    .at(-1);
+  return previousWaybill?.endOdometer ?? vehicle.startOdometer;
+}
+
+function previousFuelBeforeWaybill(state, vehicleId, waybillDate, excludedWaybillId = null) {
+  const vehicle = getVehicle(state, vehicleId);
+  const previousWaybill = state.waybills
+    .filter((waybill) =>
+      waybill.vehicleId === vehicleId
+      && waybill.id !== excludedWaybillId
+      && waybill.status !== WaybillStatus.REJECTED
+      && waybill.waybillDate < waybillDate
+    )
+    .sort(compareWaybills)
+    .at(-1);
+  return previousWaybill?.endFuel ?? vehicle.startFuel;
+}
+
+function datesBetween(startDate, endDate) {
+  const dates = [];
+  const cursor = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
 }
 
 function wasAssignedOnDate(state, vehicleId, driverId, date) {
@@ -870,6 +1146,20 @@ function requireDate(value, name) {
     throw new DomainError(`Поле ${name} должно содержать корректную дату.`);
   }
   return date;
+}
+
+function datePartFromInstant(value, name) {
+  const raw = required(value, name);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(raw))) return requireDate(raw, name);
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new DomainError(`Поле ${name} должно содержать корректную дату.`);
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
+function formatDateList(dates) {
+  return dates.map((date) => new Date(`${date}T00:00:00.000Z`).toLocaleDateString('ru-RU')).join(', ');
 }
 
 function requireNumber(value, name) {

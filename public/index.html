@@ -24,9 +24,14 @@
           <small>Вы вошли как</small>
           <strong id="currentUserLabel"></strong>
         </div>
+        <section class="current-vehicle-summary" id="currentVehicleSummary" hidden></section>
         <nav class="nav">
-          <button class="nav-item active" data-view="vehicles">Автомобили</button>
-          <button class="nav-item" data-view="transfers" data-roles="DRIVER,FLEET_MANAGER,ADMIN">Передачи</button>
+          <button class="nav-item active" data-view="vehicles" data-roles="DRIVER">Взять автомобиль</button>
+          <button class="nav-item" data-view="vehicleRegistry" data-roles="FLEET_MANAGER,ADMIN">Реестр автомобилей</button>
+          <button class="nav-item" data-view="takeVehicle" data-roles="FLEET_MANAGER">Взять автомобиль</button>
+          <button class="nav-item" data-view="driverTransfers" data-roles="DRIVER,FLEET_MANAGER,ADMIN">Передать другому водителю</button>
+          <button class="nav-item nav-item-with-count" data-view="pendingTransfers" data-roles="DRIVER,FLEET_MANAGER"><span>Ожидает приёмки</span><span class="nav-count" id="pendingTransfersCount" hidden>0</span></button>
+          <button class="nav-item" data-view="fleetReturns" data-roles="DRIVER,FLEET_MANAGER,ADMIN">Сдать в автопарк</button>
           <button class="nav-item" data-view="waybills" data-roles="DRIVER,FLEET_MANAGER,ACCOUNTANT,ADMIN">Путевые листы</button>
           <button class="nav-item" data-view="accounting" data-roles="ACCOUNTANT,ADMIN">Бухгалтерия</button>
           <button class="nav-item" data-view="reports" data-roles="FLEET_MANAGER,ACCOUNTANT,ADMIN">Отчеты</button>
@@ -47,66 +52,152 @@
         <section class="notice" id="message" hidden></section>
 
         <section class="view active" id="vehiclesView">
-          <div class="split">
-            <form class="panel" id="vehicleForm" data-roles="FLEET_MANAGER,ADMIN">
-              <h2>Новый автомобиль</h2>
-              <label class="field"><span>Госномер</span><input name="plateNumber" required value="С789КМ 77"></label>
-              <label class="field"><span>Модель</span><input name="title" required value="УАЗ Профи"></label>
-              <label class="field"><span>Стартовый пробег</span><input name="startOdometer" type="number" min="0" required value="0"></label>
-              <label class="field"><span>Стартовое топливо</span><input name="startFuel" type="number" min="0" required value="0"></label>
-              <label class="field"><span>Дата запуска</span><input name="startAt" type="date" required value="2026-08-01"></label>
-              <button class="primary" type="submit">Создать</button>
-            </form>
-            <div class="panel wide">
-              <h2>Реестр</h2>
-              <div class="table-wrap">
-                <table class="vehicles-table">
-                  <thead>
-                    <tr>
-                      <th>Автомобиль</th>
-                      <th>Статус</th>
-                      <th>Водитель</th>
-                      <th>Старт</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody id="vehiclesTable"></tbody>
-                </table>
-              </div>
+          <div class="form-blocker warning" id="vehiclesTakeStatus" hidden></div>
+          <div class="panel wide" id="vehiclesTakePanel">
+            <h2>Доступные автомобили</h2>
+            <div class="table-wrap">
+              <table class="vehicles-table">
+                <thead>
+                  <tr>
+                    <th>Автомобиль</th>
+                    <th>Статус</th>
+                    <th>Водитель</th>
+                    <th>Пробег и топливо</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="vehiclesTable"></tbody>
+              </table>
             </div>
           </div>
         </section>
 
-        <section class="view" id="transfersView">
-          <div class="split">
-            <form class="panel" id="transferForm" data-roles="DRIVER,FLEET_MANAGER">
-              <h2>Передать водителю</h2>
-              <label class="field"><span>Автомобиль</span><select name="vehicleId" id="transferVehicle"></select></label>
-              <label class="field"><span>Кому</span><select name="toDriverId" id="transferDriver"></select></label>
-              <button class="primary" type="submit">Инициировать передачу</button>
-            </form>
-            <form class="panel" id="returnForm" data-roles="DRIVER,FLEET_MANAGER">
-              <h2>Сдать в автопарк</h2>
-              <label class="field"><span>Автомобиль</span><select name="vehicleId" id="returnVehicle"></select></label>
-              <label class="field"><span>Комментарий</span><input name="note" value="Автомобиль возвращен после смены"></label>
-              <button class="secondary" type="submit">Отправить на приемку</button>
-            </form>
+        <section class="view" id="vehicleRegistryView">
+          <div class="panel wide">
+            <h2>Реестр автомобилей</h2>
+            <div class="actions">
+              <button class="primary" id="openVehicleAdd" type="button">Добавить новый автомобиль</button>
+            </div>
+            <details class="registry-filter-panel" id="registryFilterPanel">
+              <summary>Фильтры реестра</summary>
+              <form class="registry-filters" id="registryFilters">
+                <label class="field"><span>Автомобиль</span>
+                  <div class="autocomplete">
+                    <input name="search" autocomplete="off" placeholder="Госномер или модель" aria-autocomplete="list" aria-controls="registryVehicleSuggestions">
+                    <div class="autocomplete-menu" id="registryVehicleSuggestions" role="listbox" hidden></div>
+                  </div>
+                </label>
+                <label class="field"><span>Статус</span><select name="status" id="registryStatusFilter">
+                  <option value="">Все статусы</option>
+                  <option value="FREE">Свободен</option>
+                  <option value="ASSIGNED">Закреплен</option>
+                  <option value="TRANSFER_PENDING">Передача</option>
+                  <option value="RETURN_PENDING">Приемка</option>
+                  <option value="SOLD">Продан</option>
+                </select></label>
+                <label class="field"><span>Кому принадлежит</span><input name="owner" placeholder="Водитель или автопарк"></label>
+                <label class="field"><span>Пробег, от</span><input name="odometerFrom" type="number" min="0" step="any"></label>
+                <label class="field"><span>Пробег, до</span><input name="odometerTo" type="number" min="0" step="any"></label>
+                <label class="field"><span>Топливо, от</span><input name="fuelFrom" type="number" min="0" step="any"></label>
+                <label class="field"><span>Топливо, до</span><input name="fuelTo" type="number" min="0" step="any"></label>
+                <button class="ghost registry-reset" id="resetRegistryFilters" type="button">Сбросить</button>
+              </form>
+            </details>
+            <div class="table-wrap">
+              <table class="vehicles-table vehicle-registry-table">
+                <thead>
+                  <tr>
+                    <th><button class="sort-button" data-registry-sort="vehicle" type="button">Автомобиль</button></th>
+                    <th><button class="sort-button" data-registry-sort="status" type="button">Статус</button></th>
+                    <th><button class="sort-button" data-registry-sort="owner" type="button">Кому принадлежит</button></th>
+                    <th><button class="sort-button" data-registry-sort="odometer" type="button">Текущий пробег</button></th>
+                    <th><button class="sort-button" data-registry-sort="fuel" type="button">Топливо в баке</button></th>
+                    <th><button class="sort-button" data-registry-sort="startAt" type="button">Старт учета</button></th>
+                    <th><button class="sort-button" data-registry-sort="soldAt" type="button">Дата продажи</button></th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="vehicleRegistryTable"></tbody>
+              </table>
+            </div>
           </div>
+        </section>
+
+        <section class="view" id="takeVehicleView">
+          <div class="form-blocker warning" id="managerTakeVehicleStatus" hidden></div>
+          <div class="panel wide" id="managerTakeVehiclePanel">
+            <h2>Доступные автомобили</h2>
+            <div class="table-wrap">
+              <table class="vehicles-table">
+                <thead>
+                  <tr>
+                    <th>Автомобиль</th>
+                    <th>Статус</th>
+                    <th>Водитель</th>
+                    <th>Пробег и топливо</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="availableVehiclesTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="driverTransfersView">
+          <div class="form-blocker warning" id="transferVehicleStatus" hidden></div>
+          <form class="panel transfer-form" id="transferForm" data-roles="DRIVER,FLEET_MANAGER">
+            <h2>Передать другому водителю</h2>
+            <label class="field"><span>Автомобиль <b class="required-mark" aria-hidden="true">*</b></span><select name="vehicleId" id="transferVehicle" required></select></label>
+            <label class="field"><span>Кому <b class="required-mark" aria-hidden="true">*</b></span><select name="toDriverId" id="transferDriver" required></select></label>
+            <label class="field"><span>Фото автомобиля, минимум 4 ракурса <b class="required-mark" aria-hidden="true">*</b></span><input name="vehiclePhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple required></label>
+            <label class="field"><span>Фото приборной панели <b class="required-mark" aria-hidden="true">*</b></span><input name="dashboardPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple required></label>
+            <label class="field"><span>Дополнительные фото</span><input name="extraPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
+            <label class="field"><span>Текущий пробег, км <b class="required-mark" aria-hidden="true">*</b></span><input name="odometer" type="number" min="0" step="1" required></label>
+            <fieldset class="transfer-documents"><legend>Передаваемые документы</legend><label><input type="checkbox" name="documents" value="STS"> СТС</label><label><input type="checkbox" name="documents" value="SERVICE_BOOK"> Сервисная книжка</label><label><input type="checkbox" name="documents" value="FUEL_CARD"> Топливная карта</label><label><input type="checkbox" name="documents" value="INSURANCE_POLICY"> Страховой полис</label></fieldset>
+            <label class="field"><span>Комментарий</span><textarea name="comment" maxlength="2000" rows="3"></textarea></label>
+            <button class="primary" type="submit">Инициировать передачу</button>
+          </form>
+        </section>
+
+        <section class="view" id="pendingTransfersView">
           <div class="panel">
-            <h2>Ожидающие операции</h2>
-            <div id="transferList" class="list"></div>
+            <h2>Ожидает приёмки</h2>
+            <div id="pendingTransferList" class="list"></div>
           </div>
+        </section>
+
+        <section class="view" id="fleetReturnsView">
+          <div class="form-blocker warning" id="returnWaybillStatus" hidden></div>
+          <form class="panel transfer-form" id="returnForm" data-roles="DRIVER,FLEET_MANAGER">
+            <h2>Сдать в автопарк</h2>
+            <label class="field"><span>Автомобиль <b class="required-mark" aria-hidden="true">*</b></span><select name="vehicleId" id="returnVehicle" required></select></label>
+            <label class="field"><span>Фото автомобиля, минимум 4 ракурса <b class="required-mark" aria-hidden="true">*</b></span><input name="vehiclePhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple required></label>
+            <label class="field"><span>Фото приборной панели <b class="required-mark" aria-hidden="true">*</b></span><input name="dashboardPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple required></label>
+            <label class="field"><span>Дополнительные фото</span><input name="extraPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
+            <label class="field"><span>Текущий пробег, км <b class="required-mark" aria-hidden="true">*</b></span><input name="odometer" type="number" min="0" step="1" required></label>
+            <fieldset class="transfer-documents"><legend>Передаваемые документы</legend><label><input type="checkbox" name="documents" value="STS"> СТС</label><label><input type="checkbox" name="documents" value="SERVICE_BOOK"> Сервисная книжка</label><label><input type="checkbox" name="documents" value="FUEL_CARD"> Топливная карта</label><label><input type="checkbox" name="documents" value="INSURANCE_POLICY"> Страховой полис</label></fieldset>
+            <label class="field"><span>Комментарий</span><textarea name="comment" maxlength="2000" rows="3">Автомобиль возвращен после смены</textarea></label>
+            <button class="secondary" type="submit">Отправить на приемку</button>
+          </form>
         </section>
 
         <section class="view" id="waybillsView">
           <div class="split waybill-layout">
+            <div class="form-blocker warning" id="waybillVehicleStatus" hidden></div>
             <form class="panel waybill-form" id="waybillForm" data-roles="DRIVER,FLEET_MANAGER">
               <h2>Новый путевой лист</h2>
-              <label class="field"><span>Автомобиль</span><select name="vehicleId" id="waybillVehicle"></select></label>
-              <label class="field"><span>Дата листа</span><input name="waybillDate" type="date" required value="2026-08-03"></label>
-              <label class="field"><span>Пробег поездки</span><input name="distanceKm" type="number" min="0" required value="24"></label>
-              <label class="field"><span>Заправлено</span><input name="fuelAdded" type="number" min="0" required value="10"></label>
-              <label class="field"><span>Потрачено</span><input name="fuelSpent" type="number" min="0" required value="6"></label>
+              <label class="field">
+                <span>Автомобиль <b class="required-mark" aria-hidden="true">*</b></span>
+                <input id="waybillVehicleLabel" name="vehicleLabel" type="text" readonly aria-readonly="true">
+                <input id="waybillVehicleId" name="vehicleId" type="hidden">
+              </label>
+              <label class="field"><span>Дата листа <b class="required-mark" aria-hidden="true">*</b></span><input name="waybillDate" type="date" required></label>
+              <label class="field"><span>Показание спидометра на конец дня <b class="required-mark" aria-hidden="true">*</b></span><input name="endOdometer" type="number" min="0" required></label>
+              <label class="field"><span>Заправлено, л <b class="required-mark" aria-hidden="true">*</b></span><input name="fuelAdded" type="number" min="0" required></label>
+              <label class="field"><span>Остаток топлива в баке на конец дня, л <b class="required-mark" aria-hidden="true">*</b></span><input name="endFuel" type="number" min="0" required></label>
+              <label class="field"><span>Чеки с заправки <b class="required-mark" id="waybillReceiptRequiredMark" aria-hidden="true" hidden>*</b></span><input name="fuelReceiptFiles" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple></label>
+              <div class="form-hint warning" id="waybillReceiptStatus" hidden></div>
               <label class="field"><span>Примечание</span><textarea name="note" maxlength="2000" rows="3"></textarea></label>
               <button class="primary" type="submit">Создать лист</button>
             </form>
@@ -198,9 +289,47 @@
         </div>
         <label class="field"><span>Госномер</span><input name="plateNumber" maxlength="32" required></label>
         <label class="field"><span>Модель</span><input name="title" maxlength="120" required></label>
+        <div id="initialMetricsFields">
+          <label class="field"><span>Стартовый пробег, км</span><input name="startOdometer" type="number" min="0" step="any" required></label>
+          <label class="field"><span>Стартовое топливо, л</span><input name="startFuel" type="number" min="0" step="any" required></label>
+        </div>
+        <p id="initialMetricsLocked" hidden>Стартовые показатели нельзя изменить после создания первого путевого листа.</p>
         <div class="actions dialog-actions">
           <button class="ghost" id="cancelVehicleEdit" type="button">Отмена</button>
           <button class="primary" type="submit">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="edit-dialog" id="vehicleAddDialog">
+      <form method="dialog" id="vehicleForm">
+        <div class="dialog-heading">
+          <h2>Добавить новый автомобиль</h2>
+          <button class="icon-button" id="closeVehicleAdd" type="button" aria-label="Закрыть" title="Закрыть">×</button>
+        </div>
+        <label class="field"><span>Госномер</span><input name="plateNumber" maxlength="32" required></label>
+        <label class="field"><span>Модель</span><input name="title" maxlength="120" required></label>
+        <label class="field"><span>Стартовый пробег, км</span><input name="startOdometer" type="number" min="0" step="any" required value="0"></label>
+        <label class="field"><span>Стартовое топливо, л</span><input name="startFuel" type="number" min="0" step="any" required value="0"></label>
+        <label class="field"><span>Дата запуска</span><input name="startAt" type="date" required></label>
+        <div class="actions dialog-actions">
+          <button class="ghost" id="cancelVehicleAdd" type="button">Отмена</button>
+          <button class="primary" type="submit">Добавить</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="edit-dialog" id="vehicleSaleDialog">
+      <form method="dialog" id="vehicleSaleForm">
+        <input name="vehicleId" type="hidden">
+        <div class="dialog-heading">
+          <h2>Продать автомобиль</h2>
+          <button class="icon-button" id="closeVehicleSale" type="button" aria-label="Закрыть" title="Закрыть">×</button>
+        </div>
+        <label class="field"><span>Автомобиль</span><input name="vehicleLabel" readonly></label>
+        <label class="field"><span>Дата продажи</span><input name="soldAt" type="date" required></label>
+        <p>Автомобиль останется в истории и отчетах, но его больше нельзя будет закрепить за водителем или использовать для новых путевых листов после этой даты.</p>
+        <div class="actions dialog-actions">
+          <button class="ghost" id="cancelVehicleSale" type="button">Отмена</button>
+          <button class="danger" type="submit">Подтвердить продажу</button>
         </div>
       </form>
     </dialog>
@@ -211,9 +340,9 @@
           <h2>Исправление путевого листа</h2>
           <button class="icon-button" id="closeWaybillEdit" type="button" aria-label="Закрыть" title="Закрыть">×</button>
         </div>
-        <label class="field"><span>Пробег поездки</span><input name="distanceKm" type="number" min="0" step="any" required></label>
-        <label class="field"><span>Заправлено, л</span><input name="fuelAdded" type="number" min="0" step="any" required></label>
-        <label class="field"><span>Потрачено, л</span><input name="fuelSpent" type="number" min="0" step="any" required></label>
+        <label class="field"><span>Показание спидометра на конец дня <b class="required-mark" aria-hidden="true">*</b></span><input name="endOdometer" type="number" min="0" step="any" required></label>
+        <label class="field"><span>Заправлено, л <b class="required-mark" aria-hidden="true">*</b></span><input name="fuelAdded" type="number" min="0" step="any" required></label>
+        <label class="field"><span>Остаток топлива в баке на конец дня, л <b class="required-mark" aria-hidden="true">*</b></span><input name="endFuel" type="number" min="0" step="any" required></label>
         <label class="field"><span>Примечание</span><textarea name="note" maxlength="2000" rows="4"></textarea></label>
         <div class="actions dialog-actions">
           <button class="ghost" id="cancelWaybillEdit" type="button">Отмена</button>
@@ -232,6 +361,15 @@
           <button class="primary" type="submit">Загрузить</button>
         </form>
         <div class="file-list" id="waybillFilesList"></div>
+      </div>
+    </dialog>
+    <dialog class="edit-dialog files-dialog" id="transferDetailsDialog">
+      <div class="dialog-content">
+        <div class="dialog-heading">
+          <h2 id="transferDetailsTitle">Данные передачи</h2>
+          <button class="icon-button" id="closeTransferDetails" type="button" aria-label="Закрыть" title="Закрыть">×</button>
+        </div>
+        <div id="transferDetailsContent"></div>
       </div>
     </dialog>
     <script src="/app.js" type="module"></script>

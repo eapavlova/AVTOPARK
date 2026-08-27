@@ -36,16 +36,16 @@ textarea {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 240px 1fr;
 }
 
 .sidebar {
   background: #16201c;
   color: #f8faf9;
-  padding: 24px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 .brand {
@@ -85,17 +85,36 @@ textarea {
 
 .nav {
   display: grid;
-  gap: 8px;
+  gap: 5px;
 }
 
 .nav-item {
   border: 0;
   border-radius: var(--radius);
-  padding: 11px 12px;
+  padding: 8px 10px;
   color: #dfe8e4;
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+
+.nav-item-with-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nav-count {
+  min-width: 22px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #d9442e;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
 }
 
 .nav-item.active,
@@ -104,10 +123,27 @@ textarea {
   color: #ffffff;
 }
 
+.transfer-title-link {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.transfer-title-link:hover,
+.transfer-title-link:focus-visible {
+  color: var(--primary);
+}
+
 .workspace {
-  padding: 28px;
+  padding: 20px;
   display: grid;
-  gap: 18px;
+  gap: 14px;
   align-content: start;
 }
 
@@ -116,6 +152,42 @@ textarea {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+}
+
+.current-vehicle-summary {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #33463e;
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  background: #1d2b25;
+  color: #f8faf9;
+}
+
+.current-vehicle-summary.has-vehicle {
+  border-color: #4b806b;
+  background: #1d352b;
+}
+
+.current-vehicle-summary.no-vehicle {
+  border-color: #6b5540;
+  background: #2d261f;
+}
+
+.current-vehicle-summary small {
+  color: #b9c7c0;
+  font-size: 12px;
+}
+
+.current-vehicle-summary strong {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.current-vehicle-summary span {
+  color: #b9c7c0;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 h1,
@@ -150,17 +222,59 @@ p {
 .split {
   display: grid;
   grid-template-columns: minmax(260px, 360px) 1fr;
-  gap: 18px;
+  gap: 14px;
 }
 
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 18px;
+  padding: 14px;
   display: grid;
-  gap: 14px;
+  gap: 10px;
   align-content: start;
+}
+
+.panel.is-disabled {
+  border-color: #e4e8ee;
+  background: #f1f3f5;
+  color: #8a94a0;
+}
+
+.panel.is-disabled input,
+.panel.is-disabled select,
+.panel.is-disabled textarea,
+.panel.is-disabled fieldset {
+  background: #eef1f4;
+  color: #8a94a0;
+}
+
+.panel.is-disabled tbody tr,
+.vehicle-row-disabled {
+  color: #8a94a0;
+  opacity: 0.72;
+}
+
+.panel.is-disabled .badge,
+.vehicle-row-disabled .badge {
+  filter: grayscale(1);
+  opacity: 0.78;
+}
+
+.transfer-form {
+  width: min(100%, 720px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.transfer-form > h2,
+.transfer-form > .transfer-documents,
+.transfer-form > label:has(textarea),
+.transfer-form > button[type="submit"] {
+  grid-column: 1 / -1;
+}
+
+.vehicle-form {
+  width: min(100%, 460px);
 }
 
 .wide {
@@ -173,12 +287,46 @@ p {
 
 .field {
   display: grid;
-  gap: 7px;
+  gap: 4px;
 }
 
 .field span {
   color: var(--muted);
   font-size: 13px;
+}
+
+.required-mark {
+  color: #c8201a;
+  font-weight: 700;
+}
+
+.form-hint {
+  grid-column: 1 / -1;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.form-hint.warning {
+  background: #fff3e6;
+  border: 1px solid #f2c99e;
+  color: var(--warning);
+}
+
+.form-blocker {
+  width: min(100%, 720px);
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.form-blocker.warning {
+  background: #fff3e6;
+  border: 1px solid #f2c99e;
+  color: var(--warning);
 }
 
 input,
@@ -187,18 +335,18 @@ textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 7px;
-  padding: 10px 11px;
+  padding: 8px 10px;
   color: var(--ink);
   background: #fff;
 }
 
 textarea {
   resize: vertical;
-  min-height: 82px;
+  min-height: 64px;
 }
 
 button {
-  min-height: 40px;
+  min-height: 36px;
 }
 
 .primary,
@@ -206,7 +354,7 @@ button {
 .ghost,
 .danger {
   border-radius: 7px;
-  padding: 10px 13px;
+  padding: 8px 11px;
   border: 1px solid transparent;
   cursor: pointer;
 }
@@ -244,6 +392,18 @@ button {
   background: var(--danger);
 }
 
+button:disabled,
+.primary:disabled,
+.secondary:disabled,
+.ghost:disabled,
+.danger:disabled {
+  border-color: #d5dae0;
+  color: #8a94a0;
+  background: #e5e8ec;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .table-wrap {
   overflow: auto;
 }
@@ -258,16 +418,99 @@ table {
   min-width: 540px;
 }
 
-.waybill-layout {
-  grid-template-columns: 1fr;
+.vehicle-registry-table {
+  min-width: 820px;
 }
 
-.waybill-form {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.registry-filters {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
   align-items: end;
 }
 
-.waybill-form h2 {
+.registry-filter-panel {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 14px 14px;
+}
+
+.registry-filter-panel summary {
+  padding: 13px 0;
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.registry-filter-panel:not([open]) {
+  padding-bottom: 0;
+}
+
+.registry-reset {
+  align-self: end;
+}
+
+.autocomplete {
+  position: relative;
+}
+
+.autocomplete-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 264px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 10px 24px rgb(16 24 40 / 14%);
+}
+
+.autocomplete-option {
+  display: grid;
+  width: 100%;
+  min-height: 0;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.autocomplete-option:last-child {
+  border-bottom: 0;
+}
+
+.autocomplete-option:hover {
+  background: #edf7f2;
+}
+
+.autocomplete-option span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.waybill-layout {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.waybill-form {
+  width: min(100%, 720px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+
+.waybill-form h2,
+.waybill-form > .form-hint,
+.waybill-form > label:has(textarea),
+.waybill-form > button {
   grid-column: 1 / -1;
 }
 
@@ -289,6 +532,23 @@ th {
   color: var(--muted);
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.sort-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sort-button:hover,
+.sort-button.active {
+  color: var(--ink);
 }
 
 .badge {
@@ -321,9 +581,9 @@ th {
 .row-card {
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 13px;
+  padding: 10px;
   display: grid;
-  gap: 10px;
+  gap: 7px;
 }
 
 .row-card header {
@@ -369,15 +629,15 @@ th {
 }
 
 .edit-dialog form {
-  padding: 20px;
+  padding: 16px;
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .dialog-content {
-  padding: 20px;
+  padding: 16px;
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .files-dialog {
@@ -395,6 +655,56 @@ th {
   display: grid;
   gap: 8px;
 }
+
+.transfer-documents,
+.transfer-details {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.transfer-documents {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+}
+
+.transfer-documents legend {
+  padding: 0 4px;
+}
+
+.transfer-documents label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  font-size: 14px;
+}
+
+.transfer-documents input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.transfer-details {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 8px 12px;
+}
+
+.transfer-details dt { color: var(--muted); }
+.transfer-details dd { margin: 0; overflow-wrap: anywhere; }
+
+.transfer-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.transfer-photo-grid figure { margin: 0; }
+.transfer-photo-grid img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--line); border-radius: 8px; }
+.transfer-photo-grid figcaption { margin-top: 4px; color: var(--muted); font-size: 12px; }
 
 .file-row {
   display: flex;
@@ -489,7 +799,8 @@ th {
 
   .split,
   .topbar,
-  .filters-grid {
+  .filters-grid,
+  .registry-filters {
     grid-template-columns: 1fr;
     display: grid;
   }
@@ -500,6 +811,14 @@ th {
 }
 
 @media (max-width: 600px) {
+  .transfer-form {
+    grid-template-columns: 1fr;
+  }
+
+  .transfer-documents {
+    grid-template-columns: 1fr;
+  }
+
   .workspace {
     padding: 20px 16px;
   }
@@ -582,7 +901,7 @@ th {
   }
 
   .vehicles-table td:nth-child(4)::before {
-    content: "Старт";
+    content: "Показатели";
     color: var(--muted);
   }
 
@@ -592,6 +911,24 @@ th {
 
   .vehicles-table .table-actions button {
     flex: 1 1 120px;
+  }
+
+  .vehicle-registry-table td:nth-child(3)::before {
+    content: "Кому принадлежит";
+  }
+
+  .vehicle-registry-table td:nth-child(4)::before {
+    content: "Текущий пробег";
+  }
+
+  .vehicle-registry-table td:nth-child(5)::before {
+    content: "Топливо";
+    color: var(--muted);
+  }
+
+  .vehicle-registry-table td:nth-child(6)::before {
+    content: "Старт учета";
+    color: var(--muted);
   }
 
   .waybill-form {

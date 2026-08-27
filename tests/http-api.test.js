@@ -32,10 +32,18 @@ test('HTTP API protects the complete waybill attachment lifecycle', { timeout: 2
     const driverHeaders = { 'x-autopark-user-id': 'u-driver-1' };
     const accountantHeaders = { 'x-autopark-user-id': 'u-accountant-1' };
     const otherDriverHeaders = { 'x-autopark-user-id': 'u-driver-2' };
+    const adminHeaders = { 'x-autopark-user-id': 'u-admin-1' };
 
     const ready = await fetch(`${baseUrl}/api/ready`);
     assert.equal(ready.status, 200);
     assert.deepEqual(await ready.json(), { status: 'ready' });
+
+    const sold = await jsonRequest(`${baseUrl}/api/vehicles/veh-2/sell`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { soldAt: '2026-08-26' }
+    });
+    assert.equal(sold.vehicles.find((vehicle) => vehicle.id === 'veh-2').status, 'SOLD');
 
     const created = await jsonRequest(`${baseUrl}/api/waybills`, {
       method: 'POST',

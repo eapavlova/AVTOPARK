@@ -74,7 +74,7 @@ export class PostgresStore {
     try {
       await client.query('begin');
       await client.query("select pg_advisory_xact_lock(hashtext('autopark_domain_state'))");
-      await client.query('truncate vehicle_sync_outbox, notification_outbox, audit_log, waybill_files, waybill_revisions, waybills, vehicle_transfers, assignments, vehicles, users, app_counters, app_metadata');
+      await client.query('truncate vehicle_sync_outbox, notification_outbox, audit_log, waybill_files, transfer_files, waybill_revisions, waybills, vehicle_transfers, assignments, vehicles, users, app_counters, app_metadata');
       await syncState(client, state);
       await client.query('commit');
     } catch (error) {
@@ -101,6 +101,7 @@ async function loadState(client) {
   const waybills = await client.query('select * from waybills order by waybill_date, created_at, id');
   const waybillRevisions = await client.query('select * from waybill_revisions order by created_at, id');
   const waybillFiles = await client.query('select * from waybill_files order by created_at, id');
+  const transferFiles = await client.query('select * from transfer_files order by created_at, id');
   const notifications = await client.query('select * from notification_outbox order by created_at, id');
   const vehicleSyncs = await client.query('select * from vehicle_sync_outbox order by created_at, id');
   const audit = await client.query('select * from audit_log order by created_at desc, id desc');
@@ -120,6 +121,7 @@ async function loadState(client) {
     })),
     vehicles: vehicles.rows.map((row) => ({
       id: row.id,
+      portalId: row.portal_id,
       plateNumber: row.plate_number,
       title: row.title,
       status: row.status,
@@ -129,6 +131,7 @@ async function loadState(client) {
       startAt: toDate(row.start_at),
       startRecordedBy: row.start_recorded_by,
       startRecordedAt: toIso(row.start_recorded_at),
+      soldAt: row.sold_at ? toDate(row.sold_at) : null,
       bitrixItemId: row.bitrix_item_id === null ? null : Number(row.bitrix_item_id)
     })),
     assignments: assignments.rows.map((row) => ({
@@ -148,7 +151,8 @@ async function loadState(client) {
       createdBy: row.created_by,
       createdAt: toIso(row.created_at),
       resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
-      reason: row.reason
+      reason: row.reason,
+      handover: row.handover
     })),
     waybills: waybills.rows.map((row) => ({
       id: row.id,
@@ -158,8 +162,10 @@ async function loadState(client) {
       createdAt: toIso(row.created_at),
       status: row.status,
       distanceKm: Number(row.distance_km),
+      reportedEndOdometer: nullableNumber(row.reported_end_odometer),
       fuelAdded: Number(row.fuel_added),
       fuelSpent: Number(row.fuel_spent),
+      reportedEndFuel: nullableNumber(row.reported_end_fuel),
       startOdometer: nullableNumber(row.start_odometer),
       endOdometer: nullableNumber(row.end_odometer),
       startFuel: nullableNumber(row.start_fuel),
@@ -185,6 +191,7 @@ async function loadState(client) {
       storageKey: row.storage_key,
       createdAt: toIso(row.created_at)
     })),
+    transferFiles: transferFiles.rows.map((row) => ({ id: row.id, transferId: row.transfer_id, uploadedBy: row.uploaded_by, category: row.category, originalName: row.original_name, mimeType: row.mime_type, sizeBytes: Number(row.size_bytes), storageKey: row.storage_key, createdAt: toIso(row.created_at) })),
     notifications: notifications.rows.map((row) => ({
       id: row.id,
       portalId: row.portal_id,
@@ -228,11 +235,11 @@ async function syncState(client, state) {
   ]));
   await upsertRows(client, 'vehicles', [
     'id', 'portal_id', 'plate_number', 'title', 'status', 'current_driver_id', 'start_odometer', 'start_fuel',
-    'start_at', 'start_recorded_by', 'start_recorded_at', 'bitrix_item_id'
+    'start_at', 'start_recorded_by', 'start_recorded_at', 'sold_at', 'bitrix_item_id'
   ], state.vehicles.map((vehicle) => [
     vehicle.id, vehicle.portalId ?? 'local', vehicle.plateNumber, vehicle.title, vehicle.status,
     vehicle.currentDriverId, vehicle.startOdometer, vehicle.startFuel, vehicle.startAt, vehicle.startRecordedBy,
-    vehicle.startRecordedAt, vehicle.bitrixItemId
+    vehicle.startRecordedAt, vehicle.soldAt ?? null, vehicle.bitrixItemId
   ]));
   const assignmentRows = state.assignments.map((assignment) => [
     assignment.id, assignment.vehicleId, assignment.driverId, assignment.startAt, assignment.endAt
@@ -241,21 +248,21 @@ async function syncState(client, state) {
   await upsertRows(client, 'assignments', ['id', 'vehicle_id', 'driver_id', 'start_at', 'end_at'], assignmentRows.filter((row) => row[4] === null));
   const transferRows = state.transfers.map((transfer) => [
     transfer.id, transfer.type, transfer.status, transfer.vehicleId, transfer.fromDriverId, transfer.toDriverId,
-    transfer.createdBy, transfer.createdAt, transfer.resolvedAt, transfer.reason
+    transfer.createdBy, transfer.createdAt, transfer.resolvedAt, transfer.reason, transfer.handover ?? null
   ]);
   await upsertRows(client, 'vehicle_transfers', [
-    'id', 'type', 'status', 'vehicle_id', 'from_driver_id', 'to_driver_id', 'created_by', 'created_at', 'resolved_at', 'reason'
+    'id', 'type', 'status', 'vehicle_id', 'from_driver_id', 'to_driver_id', 'created_by', 'created_at', 'resolved_at', 'reason', 'handover'
   ], transferRows.filter((row) => row[2] !== 'PENDING'));
   await upsertRows(client, 'vehicle_transfers', [
-    'id', 'type', 'status', 'vehicle_id', 'from_driver_id', 'to_driver_id', 'created_by', 'created_at', 'resolved_at', 'reason'
+    'id', 'type', 'status', 'vehicle_id', 'from_driver_id', 'to_driver_id', 'created_by', 'created_at', 'resolved_at', 'reason', 'handover'
   ], transferRows.filter((row) => row[2] === 'PENDING'));
   await upsertRows(client, 'waybills', [
     'id', 'vehicle_id', 'driver_id', 'waybill_date', 'created_at', 'status', 'distance_km', 'fuel_added',
-    'fuel_spent', 'start_odometer', 'end_odometer', 'start_fuel', 'end_fuel', 'note'
+    'fuel_spent', 'reported_end_odometer', 'reported_end_fuel', 'start_odometer', 'end_odometer', 'start_fuel', 'end_fuel', 'note'
   ], state.waybills.map((waybill) => [
     waybill.id, waybill.vehicleId, waybill.driverId, waybill.waybillDate, waybill.createdAt, waybill.status,
-    waybill.distanceKm, waybill.fuelAdded, waybill.fuelSpent, waybill.startOdometer, waybill.endOdometer,
-    waybill.startFuel, waybill.endFuel, waybill.note
+    waybill.distanceKm, waybill.fuelAdded, waybill.fuelSpent, waybill.reportedEndOdometer, waybill.reportedEndFuel,
+    waybill.startOdometer, waybill.endOdometer, waybill.startFuel, waybill.endFuel, waybill.note
   ]));
   await upsertRows(client, 'waybill_revisions', [
     'id', 'waybill_id', 'actor_id', 'waybill_status', 'before_data', 'after_data', 'created_at'
@@ -269,6 +276,7 @@ async function syncState(client, state) {
     file.id, file.waybillId, file.uploadedBy, file.originalName, file.mimeType,
     file.sizeBytes, file.storageKey, file.createdAt
   ]));
+  await upsertRows(client, 'transfer_files', ['id', 'transfer_id', 'uploaded_by', 'category', 'original_name', 'mime_type', 'size_bytes', 'storage_key', 'created_at'], (state.transferFiles ?? []).map((file) => [file.id, file.transferId, file.uploadedBy, file.category, file.originalName, file.mimeType, file.sizeBytes, file.storageKey, file.createdAt]));
   await upsertRows(client, 'audit_log', ['id', 'actor_id', 'action', 'payload', 'created_at'], state.auditLog.map((entry) => [
     entry.id, entry.actorId, entry.action, entry.payload, entry.createdAt
   ]));
@@ -290,6 +298,7 @@ async function syncState(client, state) {
   await deleteMissing(client, 'notification_outbox', (state.notifications ?? []).map((item) => item.id));
   await deleteMissing(client, 'audit_log', state.auditLog.map((entry) => entry.id));
   await deleteMissing(client, 'waybill_files', (state.waybillFiles ?? []).map((file) => file.id));
+  await deleteMissing(client, 'transfer_files', (state.transferFiles ?? []).map((file) => file.id));
   await deleteMissing(client, 'waybill_revisions', (state.waybillRevisions ?? []).map((revision) => revision.id));
   await deleteMissing(client, 'waybills', state.waybills.map((waybill) => waybill.id));
   await deleteMissing(client, 'vehicle_transfers', state.transfers.map((transfer) => transfer.id));

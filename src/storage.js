@@ -16,9 +16,10 @@ export class JsonStore {
         ...state,
         waybillRevisions: state.waybillRevisions ?? [],
         waybillFiles: state.waybillFiles ?? [],
+        transferFiles: state.transferFiles ?? [],
         notifications: state.notifications ?? [],
         vehicleSyncs: state.vehicleSyncs ?? [],
-        counters: { waybillRevision: 0, waybillFile: 0, notification: 0, vehicleSync: 0, ...state.counters }
+        counters: { waybillRevision: 0, waybillFile: 0, transferFile: 0, notification: 0, vehicleSync: 0, ...state.counters }
       };
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;

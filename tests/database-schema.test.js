@@ -53,3 +53,27 @@ test('waybill file migration stores private keys and enforces size limits', asyn
   assert.match(sql, /size_bytes <= 10485760/i);
   assert.match(sql, /waybill_files_waybill_created_idx/i);
 });
+
+test('vehicle sale migration restores sold vehicles and their sale date', async () => {
+  const sql = await readFile(new URL('../migrations/009_vehicle_sales.sql', import.meta.url), 'utf8');
+
+  assert.match(sql, /sold_at/i);
+  assert.match(sql, /'SOLD'/i);
+  assert.match(sql, /vehicles_sale_date_check/i);
+});
+
+test('transfer handover migration stores details and photographs separately', async () => {
+  const sql = await readFile(new URL('../migrations/010_transfer_handover.sql', import.meta.url), 'utf8');
+  assert.match(sql, /add column if not exists handover jsonb/i);
+  assert.match(sql, /create table if not exists transfer_files/i);
+  assert.match(sql, /references vehicle_transfers\(id\)/i);
+  assert.match(sql, /category in \('VEHICLE', 'DASHBOARD', 'EXTRA'\)/i);
+});
+
+test('waybill reported metrics migration stores driver-entered end values', async () => {
+  const sql = await readFile(new URL('../migrations/011_waybill_reported_metrics.sql', import.meta.url), 'utf8');
+  assert.match(sql, /reported_end_odometer/i);
+  assert.match(sql, /reported_end_fuel/i);
+  assert.match(sql, /waybills_reported_end_odometer_check/i);
+  assert.match(sql, /waybills_reported_end_fuel_check/i);
+});

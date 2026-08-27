@@ -15,8 +15,10 @@ import {
   rejectDriverTransfer,
   removeWaybillFile,
   Roles,
+  sellVehicle,
   synchronizeBitrixUser,
   updateVehicleReference,
+  updateVehicleInitialMetrics,
   updateWaybill,
   updateWaybillStatus,
   VehicleStatus,
@@ -109,6 +111,39 @@ test('driver cannot edit vehicle reference data and duplicate plates are rejecte
   }), /госномером уже существует/i);
 });
 
+test('vehicle start date cannot be in the future', () => {
+  assert.throws(() => addVehicle(createInitialState(), {
+    actorId: 'u-admin-1',
+    plateNumber: 'Е111ЕЕ 77',
+    title: 'Lada Vesta',
+    startOdometer: 0,
+    startFuel: 0,
+    startAt: '9999-01-01'
+  }), /не может быть в будущем/i);
+});
+
+test('initial vehicle metrics can be corrected only before the first waybill', () => {
+  let state = baseState();
+  state = updateVehicleInitialMetrics(state, {
+    actorId: 'u-fleet-1', vehicleId: 'veh-1', startOdometer: 1200, startFuel: 42
+  });
+  const vehicle = state.vehicles.find((item) => item.id === 'veh-1');
+  assert.equal(vehicle.startOdometer, 1200);
+  assert.equal(vehicle.startFuel, 42);
+  assert.equal(state.auditLog[0].action, 'VEHICLE_INITIAL_METRICS_UPDATED');
+
+  state = assignFreeVehicle(state, {
+    actorId: 'u-driver-1', driverId: 'u-driver-1', vehicleId: 'veh-1', assignedAt: '2026-08-02T09:00:00.000Z'
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1', driverId: 'u-driver-1', vehicleId: 'veh-1', waybillDate: '2026-08-03',
+    distanceKm: 10, fuelAdded: 0, fuelSpent: 1
+  });
+  assert.throws(() => updateVehicleInitialMetrics(state, {
+    actorId: 'u-admin-1', vehicleId: 'veh-1', startOdometer: 1300, startFuel: 40
+  }), /уже создан путевой лист/i);
+});
+
 test('ordinary driver cannot take a second active vehicle', () => {
   let state = baseState();
   state = assignFreeVehicle(state, {
@@ -126,7 +161,24 @@ test('ordinary driver cannot take a second active vehicle', () => {
   }), /уже имеет активный автомобиль/i);
 });
 
-test('driver transfer changes owner only after recipient accepts', () => {
+test('fleet manager cannot take a second active vehicle', () => {
+  let state = baseState();
+  state = assignFreeVehicle(state, {
+    actorId: 'u-fleet-1',
+    driverId: 'u-fleet-1',
+    vehicleId: 'veh-1',
+    assignedAt: '2026-08-02T09:00:00.000Z'
+  });
+
+  assert.throws(() => assignFreeVehicle(state, {
+    actorId: 'u-fleet-1',
+    driverId: 'u-fleet-1',
+    vehicleId: 'veh-2',
+    assignedAt: '2026-08-02T10:00:00.000Z'
+  }), /уже имеет активный автомобиль/i);
+});
+
+test('waybill can be created only for the currently assigned vehicle', () => {
   let state = baseState();
   state = assignFreeVehicle(state, {
     actorId: 'u-driver-1',
@@ -140,13 +192,82 @@ test('driver transfer changes owner only after recipient accepts', () => {
     toDriverId: 'u-driver-2',
     vehicleId: 'veh-1'
   });
+  state = acceptDriverTransfer(state, {
+    actorId: 'u-driver-2',
+    transferId: 'trn-1',
+    resolvedAt: '2026-08-03T10:00:00.000Z'
+  });
+
+  assert.throws(() => createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-02',
+    distanceKm: 15,
+    fuelAdded: 0,
+    fuelSpent: 2
+  }), /сейчас закреплен/);
+
+  state = createWaybill(state, {
+    actorId: 'u-driver-2',
+    driverId: 'u-driver-2',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    distanceKm: 20,
+    fuelAdded: 0,
+    fuelSpent: 3
+  });
+
+  assert.equal(state.waybills.length, 1);
+  assert.equal(state.waybills[0].driverId, 'u-driver-2');
+});
+
+test('fleet manager can create a waybill for their currently assigned vehicle', () => {
+  let state = baseState();
+  state = assignFreeVehicle(state, {
+    actorId: 'u-fleet-1',
+    driverId: 'u-fleet-1',
+    vehicleId: 'veh-1',
+    assignedAt: '2026-08-03T09:00:00.000Z'
+  });
+
+  state = createWaybill(state, {
+    actorId: 'u-fleet-1',
+    driverId: 'u-fleet-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    distanceKm: 12,
+    fuelAdded: 0,
+    fuelSpent: 2
+  });
+
+  assert.equal(state.waybills.length, 1);
+  assert.equal(state.waybills[0].driverId, 'u-fleet-1');
+});
+
+test('driver can transfer a vehicle to fleet manager, who becomes its driver after acceptance', () => {
+  let state = baseState();
+  state = assignFreeVehicle(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    assignedAt: '2026-08-02T09:00:00.000Z'
+  });
+  state = initiateDriverTransfer(state, {
+    actorId: 'u-driver-1',
+    fromDriverId: 'u-driver-1',
+    toDriverId: 'u-fleet-1',
+    vehicleId: 'veh-1',
+    handover: { odometer: 12345, documents: ['STS', 'FUEL_CARD'], comment: 'Передача после смены' }
+  });
 
   assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').currentDriverId, 'u-driver-1');
   assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').status, VehicleStatus.TRANSFER_PENDING);
+  assert.deepEqual(state.transfers[0].handover, { odometer: 12345, documents: ['STS', 'FUEL_CARD'], comment: 'Передача после смены' });
 
-  state = acceptDriverTransfer(state, { actorId: 'u-driver-2', transferId: 'trn-1' });
+  state = acceptDriverTransfer(state, { actorId: 'u-fleet-1', transferId: 'trn-1' });
 
-  assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').currentDriverId, 'u-driver-2');
+  assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').currentDriverId, 'u-fleet-1');
   assert.equal(state.assignments.filter((assignment) => assignment.vehicleId === 'veh-1').length, 2);
 });
 
@@ -189,11 +310,21 @@ test('return to fleet makes vehicle free only after fleet manager confirmation',
     vehicleId: 'veh-1',
     assignedAt: '2026-08-02T09:00:00.000Z'
   });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-02',
+    distanceKm: 30,
+    fuelAdded: 0,
+    fuelSpent: 4
+  });
   state = initiateReturnToFleet(state, {
     actorId: 'u-driver-1',
     driverId: 'u-driver-1',
     vehicleId: 'veh-1',
-    note: 'Смена завершена'
+    note: 'Смена завершена',
+    returnedAt: '2026-08-02T18:00:00.000Z'
   });
 
   assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').status, VehicleStatus.RETURN_PENDING);
@@ -203,6 +334,184 @@ test('return to fleet makes vehicle free only after fleet manager confirmation',
 
   assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').status, VehicleStatus.FREE);
   assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').currentDriverId, null);
+});
+
+test('driver cannot return a vehicle until every ownership day has a waybill', () => {
+  let state = baseState();
+  state = assignFreeVehicle(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    assignedAt: '2026-08-01T09:00:00.000Z'
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-01',
+    distanceKm: 10,
+    fuelAdded: 0,
+    fuelSpent: 1
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    distanceKm: 30,
+    fuelAdded: 0,
+    fuelSpent: 3
+  });
+
+  assert.throws(() => initiateReturnToFleet(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    returnedAt: '2026-08-04T18:00:00.000Z'
+  }), /02\.08\.2026, 04\.08\.2026/);
+
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-02',
+    distanceKm: 20,
+    fuelAdded: 0,
+    fuelSpent: 2
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-04',
+    distanceKm: 40,
+    fuelAdded: 0,
+    fuelSpent: 4
+  });
+  state = initiateReturnToFleet(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    returnedAt: '2026-08-04T18:00:00.000Z'
+  });
+
+  assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').status, VehicleStatus.RETURN_PENDING);
+});
+
+test('fleet manager own return immediately frees the vehicle without acceptance', () => {
+  let state = baseState();
+  state = assignFreeVehicle(state, {
+    actorId: 'u-fleet-1',
+    driverId: 'u-fleet-1',
+    vehicleId: 'veh-1',
+    assignedAt: '2026-08-02T09:00:00.000Z'
+  });
+  state = createWaybill(state, {
+    actorId: 'u-fleet-1',
+    driverId: 'u-fleet-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-02',
+    distanceKm: 30,
+    fuelAdded: 0,
+    fuelSpent: 4
+  });
+  state = initiateReturnToFleet(state, {
+    actorId: 'u-fleet-1',
+    driverId: 'u-fleet-1',
+    vehicleId: 'veh-1',
+    note: 'Вернул после проверки',
+    resolvedAt: '2026-08-02T18:00:00.000Z'
+  });
+
+  const vehicle = state.vehicles.find((item) => item.id === 'veh-1');
+  const assignment = state.assignments.find((item) => item.vehicleId === 'veh-1');
+  assert.equal(vehicle.status, VehicleStatus.FREE);
+  assert.equal(vehicle.currentDriverId, null);
+  assert.equal(assignment.endAt, '2026-08-02T18:00:00.000Z');
+  assert.equal(state.transfers.length, 1);
+  assert.equal(state.transfers[0].status, 'CONFIRMED');
+  assert.equal(state.auditLog[0].action, 'RETURN_CONFIRMED');
+});
+
+test('fleet manager cannot confirm an old pending return from self', () => {
+  let state = baseState();
+  state = assignFreeVehicle(state, {
+    actorId: 'u-fleet-1',
+    driverId: 'u-fleet-1',
+    vehicleId: 'veh-1',
+    assignedAt: '2026-08-02T09:00:00.000Z'
+  });
+  state = {
+    ...state,
+    vehicles: state.vehicles.map((vehicle) => vehicle.id === 'veh-1'
+      ? { ...vehicle, status: VehicleStatus.RETURN_PENDING }
+      : vehicle),
+    transfers: [{
+      id: 'trn-old',
+      type: 'RETURN_TO_FLEET',
+      status: 'PENDING',
+      vehicleId: 'veh-1',
+      fromDriverId: 'u-fleet-1',
+      toDriverId: null,
+      createdBy: 'u-fleet-1',
+      createdAt: '2026-08-02T18:00:00.000Z',
+      resolvedAt: null,
+      reason: null
+    }]
+  };
+
+  assert.throws(
+    () => confirmReturnToFleet(state, { actorId: 'u-fleet-1', transferId: 'trn-old' }),
+    /не требуется подтверждать собственную сдачу/
+  );
+});
+
+test('fleet manager or administrator can sell a free vehicle and retain its history', () => {
+  let state = assignedState();
+  state = createWaybill(state, {
+    actorId: 'u-driver-1', driverId: 'u-driver-1', vehicleId: 'veh-1', waybillDate: '2026-08-02',
+    distanceKm: 10, fuelAdded: 0, fuelSpent: 1
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1', driverId: 'u-driver-1', vehicleId: 'veh-1', waybillDate: '2026-08-03',
+    distanceKm: 30, fuelAdded: 0, fuelSpent: 4
+  });
+  for (const waybill of state.waybills) {
+    state = updateWaybillStatus(state, {
+      actorId: 'u-driver-1', waybillId: waybill.id, status: WaybillStatus.ACCOUNTING_REVIEW
+    });
+    state = updateWaybillStatus(state, {
+      actorId: 'u-accountant-1', waybillId: waybill.id, status: WaybillStatus.PROCESSED
+    });
+  }
+  state = initiateReturnToFleet(state, {
+    actorId: 'u-driver-1', driverId: 'u-driver-1', vehicleId: 'veh-1', returnedAt: '2026-08-03T18:00:00.000Z'
+  });
+  state = confirmReturnToFleet(state, { actorId: 'u-fleet-1', transferId: 'trn-1' });
+  state = sellVehicle(state, { actorId: 'u-fleet-1', vehicleId: 'veh-1', soldAt: '2026-08-03' });
+
+  const vehicle = state.vehicles.find((item) => item.id === 'veh-1');
+  assert.equal(vehicle.status, VehicleStatus.SOLD);
+  assert.equal(vehicle.soldAt, '2026-08-03');
+  assert.equal(state.waybills.length, 2);
+  assert.equal(state.auditLog[0].action, 'VEHICLE_SOLD');
+  assert.throws(() => assignFreeVehicle(state, {
+    actorId: 'u-driver-2', driverId: 'u-driver-2', vehicleId: 'veh-1'
+  }), /уже не свободен/i);
+  assert.throws(() => createWaybill(state, {
+    actorId: 'u-driver-1', driverId: 'u-driver-1', vehicleId: 'veh-1', waybillDate: '2026-08-04',
+    distanceKm: 10, fuelAdded: 0, fuelSpent: 1
+  }), /после даты продажи/i);
+});
+
+test('sale is restricted to free vehicles with completed waybills', () => {
+  const assigned = assignedState();
+  assert.throws(() => sellVehicle(assigned, {
+    actorId: 'u-admin-1', vehicleId: 'veh-1', soldAt: '2026-08-03'
+  }), /только свободный/i);
+  assert.throws(() => sellVehicle(baseState(), {
+    actorId: 'u-driver-1', vehicleId: 'veh-1', soldAt: '2026-08-03'
+  }), /недостаточно прав/i);
 });
 
 test('backdated waybill becomes previous source for the next waybill', () => {
@@ -234,6 +543,130 @@ test('backdated waybill becomes previous source for the next waybill', () => {
   assert.equal(second.startOdometer, 1030);
   assert.equal(second.endOdometer, 1130);
   assert.equal(second.startFuel, 51);
+});
+
+test('out-of-order daily waybills recalculate by waybill date', () => {
+  let state = baseState();
+  state = assignFreeVehicle(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    assignedAt: '2026-08-01T09:00:00.000Z'
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-01',
+    distanceKm: 10,
+    fuelAdded: 0,
+    fuelSpent: 1
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    distanceKm: 30,
+    fuelAdded: 0,
+    fuelSpent: 3
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-02',
+    distanceKm: 20,
+    fuelAdded: 0,
+    fuelSpent: 2
+  });
+
+  const first = state.waybills.find((waybill) => waybill.waybillDate === '2026-08-01');
+  const second = state.waybills.find((waybill) => waybill.waybillDate === '2026-08-02');
+  const third = state.waybills.find((waybill) => waybill.waybillDate === '2026-08-03');
+  assert.equal(first.startOdometer, 1000);
+  assert.equal(second.startOdometer, 1010);
+  assert.equal(third.startOdometer, 1030);
+  assert.equal(third.endOdometer, 1060);
+  assert.equal(third.startFuel, 47);
+});
+
+test('reported end odometer is preserved when waybills are created out of order', () => {
+  let state = baseState();
+  state = assignFreeVehicle(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    assignedAt: '2026-08-01T09:00:00.000Z'
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-01',
+    endOdometer: 1010,
+    fuelAdded: 0,
+    fuelSpent: 1
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    endOdometer: 1060,
+    fuelAdded: 0,
+    fuelSpent: 3
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-02',
+    endOdometer: 1030,
+    fuelAdded: 0,
+    fuelSpent: 2
+  });
+
+  const first = state.waybills.find((waybill) => waybill.waybillDate === '2026-08-01');
+  const second = state.waybills.find((waybill) => waybill.waybillDate === '2026-08-02');
+  const third = state.waybills.find((waybill) => waybill.waybillDate === '2026-08-03');
+  assert.equal(first.distanceKm, 10);
+  assert.equal(second.distanceKm, 20);
+  assert.equal(third.startOdometer, 1030);
+  assert.equal(third.distanceKm, 30);
+  assert.equal(third.endOdometer, 1060);
+});
+
+test('reported end fuel calculates fuel spent automatically', () => {
+  let state = assignedState();
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    endOdometer: 1030,
+    fuelAdded: 10,
+    endFuel: 52
+  });
+
+  const waybill = state.waybills[0];
+  assert.equal(waybill.startFuel, 50);
+  assert.equal(waybill.fuelAdded, 10);
+  assert.equal(waybill.fuelSpent, 8);
+  assert.equal(waybill.endFuel, 52);
+});
+
+test('reported end fuel cannot exceed available fuel', () => {
+  const state = assignedState();
+  assert.throws(() => createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    endOdometer: 1030,
+    fuelAdded: 5,
+    endFuel: 60
+  }), /больше начального остатка/i);
 });
 
 test('rejected waybill is excluded from calculation chain', () => {

@@ -1,12 +1,14 @@
 const VEHICLE_EVENTS = new Set([
   'VEHICLE_CREATED',
   'VEHICLE_REFERENCE_UPDATED',
+  'VEHICLE_INITIAL_METRICS_UPDATED',
   'VEHICLE_ASSIGNED',
   'TRANSFER_INITIATED',
   'TRANSFER_ACCEPTED',
   'TRANSFER_REJECTED',
   'RETURN_INITIATED',
-  'RETURN_CONFIRMED'
+  'RETURN_CONFIRMED',
+  'VEHICLE_SOLD'
 ]);
 const MAPPABLE_FIELDS = new Set([
   'vehicleId',
@@ -194,7 +196,8 @@ function statusLabel(status) {
     FREE: 'Свободен',
     ASSIGNED: 'Закреплен',
     TRANSFER_PENDING: 'Передача',
-    RETURN_PENDING: 'Приемка'
+    RETURN_PENDING: 'Приемка',
+    SOLD: 'Продан'
   }[status] ?? status;
 }
 

@@ -23,19 +23,21 @@ create table if not exists vehicles (
   portal_id text not null default 'local',
   plate_number text not null check (length(trim(plate_number)) > 0),
   title text not null check (length(trim(title)) > 0),
-  status text not null check (status in ('FREE', 'ASSIGNED', 'TRANSFER_PENDING', 'RETURN_PENDING')),
+  status text not null check (status in ('FREE', 'ASSIGNED', 'TRANSFER_PENDING', 'RETURN_PENDING', 'SOLD')),
   current_driver_id text references users(id),
   start_odometer numeric(14, 3) not null check (start_odometer >= 0),
   start_fuel numeric(14, 3) not null check (start_fuel >= 0),
   start_at date not null,
   start_recorded_by text not null references users(id),
   start_recorded_at timestamptz not null,
+  sold_at date,
   bitrix_item_id bigint,
   unique (portal_id, plate_number),
   check (
-    (status = 'FREE' and current_driver_id is null)
-    or (status <> 'FREE' and current_driver_id is not null)
-  )
+    (status in ('FREE', 'SOLD') and current_driver_id is null)
+    or (status not in ('FREE', 'SOLD') and current_driver_id is not null)
+  ),
+  check ((status = 'SOLD' and sold_at is not null) or (status <> 'SOLD' and sold_at is null))
 );
 
 create table if not exists assignments (
@@ -75,11 +77,15 @@ create table if not exists waybills (
   distance_km numeric(14, 3) not null check (distance_km >= 0),
   fuel_added numeric(14, 3) not null check (fuel_added >= 0),
   fuel_spent numeric(14, 3) not null check (fuel_spent >= 0),
+  reported_end_odometer numeric(14, 3),
+  reported_end_fuel numeric(14, 3),
   start_odometer numeric(14, 3),
   end_odometer numeric(14, 3),
   start_fuel numeric(14, 3),
   end_fuel numeric(14, 3),
   note text not null default '',
+  check (reported_end_odometer is null or reported_end_odometer >= 0),
+  check (reported_end_fuel is null or reported_end_fuel >= 0),
   check (start_odometer is null or start_odometer >= 0),
   check (end_odometer is null or end_odometer >= 0),
   check (start_fuel is null or start_fuel >= 0),

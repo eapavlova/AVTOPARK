@@ -15,7 +15,9 @@ import {
   initiateReturnToFleet,
   rejectDriverTransfer,
   removeWaybillFile,
+  sellVehicle,
   synchronizeBitrixUser,
+  updateVehicleInitialMetrics,
   updateVehicleReference,
   updateWaybill,
   updateWaybillStatus
@@ -70,6 +72,8 @@ const routes = [
   ['GET', /^\/api\/waybills$/, async (request) => ok(projectState(await store.load(), actorIdFrom(request)).waybills)],
   ['GET', /^\/api\/waybill-files\/([^/]+)$/, async (request, match) =>
     downloadWaybillFile(request, match[1])],
+  ['GET', /^\/api\/transfer-files\/([^/]+)$/, async (request, match) =>
+    downloadTransferFile(request, match[1])],
   ['GET', /^\/api\/reports\/waybills\.(csv|xlsx)$/, async (request, match) =>
     createWaybillReportDownload(request, match[1])],
   ['GET', /^\/api\/transfers$/, async (request) => ok(projectState(await store.load(), actorIdFrom(request)).transfers)],
@@ -77,10 +81,18 @@ const routes = [
   ['POST', /^\/api\/vehicles$/, async (request) => mutate(request, addVehicle)],
   ['PATCH', /^\/api\/vehicles\/([^/]+)$/, async (request, match) =>
     mutate(request, updateVehicleReference, { vehicleId: match[1] })],
+  ['PATCH', /^\/api\/vehicles\/([^/]+)\/initial-metrics$/, async (request, match) =>
+    mutate(request, updateVehicleInitialMetrics, { vehicleId: match[1] })],
   ['POST', /^\/api\/vehicles\/([^/]+)\/assign-free$/, async (request, match) =>
     mutate(request, assignFreeVehicle, { vehicleId: match[1] })],
+  ['POST', /^\/api\/vehicles\/([^/]+)\/retire$/, async (request, match) =>
+    mutate(request, sellVehicle, { vehicleId: match[1] })],
+  ['POST', /^\/api\/vehicles\/([^/]+)\/sell$/, async (request, match) =>
+    mutate(request, sellVehicle, { vehicleId: match[1] })],
   ['POST', /^\/api\/transfers\/driver-to-driver$/, async (request) => mutate(request, initiateDriverTransfer)],
   ['POST', /^\/api\/transfers\/return-to-fleet$/, async (request) => mutate(request, initiateReturnToFleet)],
+  ['POST', /^\/api\/transfers\/([^/]+)\/files$/, async (request, match) =>
+    uploadTransferFile(request, match[1])],
   ['POST', /^\/api\/transfers\/([^/]+)\/accept$/, async (request, match) =>
     mutate(request, acceptDriverTransfer, { transferId: match[1] })],
   ['POST', /^\/api\/transfers\/([^/]+)\/reject$/, async (request, match) =>
@@ -297,6 +309,48 @@ async function downloadWaybillFile(request, fileId) {
   };
 }
 
+async function uploadTransferFile(request, transferId) {
+  const { actorId, memberId } = authContextFrom(request, { requireCsrf: true });
+  const originalName = decodeFileNameHeader(request.headers['x-file-name']);
+  const mimeType = String(request.headers['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
+  const category = String(request.headers['x-transfer-file-category'] ?? 'EXTRA').toUpperCase();
+  if (!['VEHICLE', 'DASHBOARD', 'EXTRA'].includes(category) || !['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+    throw new HttpError(400, 'Можно загрузить только изображения автомобиля, приборной панели или дополнительные фото.');
+  }
+  const buffer = await readBuffer(request, fileMaxBytes);
+  if (!buffer.length) throw new HttpError(400, 'Нельзя загрузить пустой файл.');
+  const storageKey = await fileStore.put(buffer);
+  try {
+    const state = await store.update((current) => {
+      const transfer = current.transfers.find((item) => item.id === transferId);
+      const canAttachToCompletedSelfReturn = transfer?.type === 'RETURN_TO_FLEET'
+        && transfer?.status === 'CONFIRMED'
+        && transfer?.createdBy === actorId
+        && transfer?.fromDriverId === actorId;
+      if (!transfer || transfer.createdBy !== actorId || (transfer.status !== 'PENDING' && !canAttachToCompletedSelfReturn)) {
+        throw new HttpError(403, 'Фотографии может добавить только передающий водитель до завершения передачи.');
+      }
+      const next = (current.counters.transferFile ?? 0) + 1;
+      const file = { id: `tfile-${next}`, transferId, uploadedBy: actorId, category, originalName, mimeType, sizeBytes: buffer.length, storageKey, createdAt: new Date().toISOString() };
+      return { ...current, meta: { ...current.meta, updatedAt: file.createdAt }, counters: { ...current.counters, transferFile: next }, transferFiles: [...(current.transferFiles ?? []), file] };
+    });
+    dispatchExternal(memberId);
+    return ok(projectState(state, actorId));
+  } catch (error) {
+    await fileStore.remove(storageKey).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function downloadTransferFile(request, fileId) {
+  const state = await store.load();
+  const visible = projectState(state, actorIdFrom(request)).transferFiles.find((item) => item.id === fileId);
+  if (!visible) throw new HttpError(404, 'Файл передачи не найден.');
+  const file = (state.transferFiles ?? []).find((item) => item.id === fileId);
+  const body = await fileStore.read(file.storageKey);
+  return { status: 200, body, headers: { 'content-type': file.mimeType, 'content-length': String(body.length), 'content-disposition': contentDisposition(file.originalName), 'cache-control': 'private, no-store' } };
+}
+
 async function deleteWaybillFile(request, fileId) {
   const { actorId, memberId } = authContextFrom(request, { requireCsrf: true });
   let removed;
@@ -433,7 +487,11 @@ function projectState(state, actorId) {
   const visibleWaybills = seesAllWaybills
     ? portalWaybills
     : portalWaybills.filter((waybill) => waybill.driverId === actorId);
+  const visibleTransfers = seesFleetOperations
+    ? portalTransfers
+    : portalTransfers.filter((transfer) => transfer.fromDriverId === actorId || transfer.toDriverId === actorId);
   const visibleWaybillIds = new Set(visibleWaybills.map((waybill) => waybill.id));
+  const visibleTransferIds = new Set(visibleTransfers.map((transfer) => transfer.id));
 
   return {
     meta: state.meta,
@@ -442,13 +500,14 @@ function projectState(state, actorId) {
     assignments: seesFleetOperations
       ? portalAssignments
       : portalAssignments.filter((assignment) => assignment.driverId === actorId),
-    transfers: seesFleetOperations
-      ? portalTransfers
-      : portalTransfers.filter((transfer) => transfer.fromDriverId === actorId || transfer.toDriverId === actorId),
+    transfers: visibleTransfers,
     waybills: visibleWaybills,
     waybillRevisions: (state.waybillRevisions ?? []).filter((revision) => visibleWaybillIds.has(revision.waybillId)),
     waybillFiles: (state.waybillFiles ?? [])
       .filter((file) => visibleWaybillIds.has(file.waybillId))
+      .map(({ storageKey, ...file }) => file),
+    transferFiles: (state.transferFiles ?? [])
+      .filter((file) => visibleTransferIds.has(file.transferId))
       .map(({ storageKey, ...file }) => file),
     auditLog: actor.role === 'ADMIN' ? portalAudit : []
   };
