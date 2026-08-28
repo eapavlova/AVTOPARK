@@ -295,6 +295,12 @@ p {
   font-size: 13px;
 }
 
+.file-selection-hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .required-mark {
   color: #c8201a;
   font-weight: 700;
@@ -416,6 +422,33 @@ table {
 
 .vehicles-table {
   min-width: 540px;
+}
+
+.waybills-table {
+  width: min(100%, 1240px);
+  min-width: 0;
+}
+
+.waybills-history-panel {
+  width: min(100%, 1270px);
+}
+
+.waybills-table th,
+.waybills-table td {
+  padding: 8px 9px;
+}
+
+.waybills-table th {
+  white-space: normal;
+}
+
+.waybills-table td {
+  white-space: nowrap;
+}
+
+.waybills-table th:nth-child(5),
+.waybills-table th:nth-child(6) {
+  max-width: 150px;
 }
 
 .vehicle-registry-table {
@@ -642,6 +675,33 @@ th {
 
 .files-dialog {
   width: min(620px, calc(100vw - 32px));
+}
+
+.file-preview-dialog {
+  width: min(960px, calc(100vw - 32px));
+}
+
+.file-preview-content {
+  min-height: 420px;
+  display: grid;
+  place-items: center;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.file-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 720px);
+  object-fit: contain;
+}
+
+.file-preview-pdf {
+  width: 100%;
+  height: min(70vh, 720px);
+  border: 0;
 }
 
 .file-upload {

@@ -74,6 +74,8 @@ const routes = [
     downloadWaybillFile(request, match[1])],
   ['GET', /^\/api\/transfer-files\/([^/]+)$/, async (request, match) =>
     downloadTransferFile(request, match[1])],
+  ['GET', /^\/api\/reports\/waybills$/, async (request) =>
+    getWaybillReport(request)],
   ['GET', /^\/api\/reports\/waybills\.(csv|xlsx)$/, async (request, match) =>
     createWaybillReportDownload(request, match[1])],
   ['GET', /^\/api\/transfers$/, async (request) => ok(projectState(await store.load(), actorIdFrom(request)).transfers)],
@@ -237,10 +239,7 @@ function sendResult(response, result) {
 }
 
 async function createWaybillReportDownload(request, format) {
-  const actorId = actorIdFrom(request);
-  const projected = projectState(await store.load(), actorId);
-  const url = new URL(request.url, `http://${request.headers.host}`);
-  const report = createWaybillReport(projected, actorId, Object.fromEntries(url.searchParams));
+  const report = await waybillReportForRequest(request);
   const isXlsx = format === 'xlsx';
   return {
     status: 200,
@@ -253,6 +252,17 @@ async function createWaybillReportDownload(request, format) {
       'cache-control': 'no-store'
     }
   };
+}
+
+async function getWaybillReport(request) {
+  return ok(await waybillReportForRequest(request));
+}
+
+async function waybillReportForRequest(request) {
+  const actorId = actorIdFrom(request);
+  const projected = projectState(await store.load(), actorId);
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  return createWaybillReport(projected, actorId, Object.fromEntries(url.searchParams));
 }
 
 async function uploadWaybillFile(request, waybillId) {
@@ -301,7 +311,7 @@ async function downloadWaybillFile(request, fileId) {
     status: 200,
     body,
     headers: {
-      'content-type': 'application/octet-stream',
+      'content-type': file.mimeType || 'application/octet-stream',
       'content-length': String(body.length),
       'content-disposition': contentDisposition(file.originalName),
       'cache-control': 'private, no-store'
@@ -520,7 +530,7 @@ function securityHeaders(headers = {}) {
     .filter(Boolean)
     .map((domain) => `https://${domain}`);
   return {
-    'content-security-policy': `default-src 'self'; frame-ancestors 'self' ${allowedFrames.join(' ')}; base-uri 'none'; form-action 'self'`,
+    'content-security-policy': `default-src 'self'; img-src 'self' blob: data:; frame-src 'self' blob:; frame-ancestors 'self' ${allowedFrames.join(' ')}; base-uri 'none'; form-action 'self'`,
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
     ...headers

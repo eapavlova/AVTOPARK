@@ -77,3 +77,9 @@ test('waybill reported metrics migration stores driver-entered end values', asyn
   assert.match(sql, /waybills_reported_end_odometer_check/i);
   assert.match(sql, /waybills_reported_end_fuel_check/i);
 });
+
+test('waybill route migration stores the employee route as text', async () => {
+  const sql = await readFile(new URL('../migrations/012_waybill_route.sql', import.meta.url), 'utf8');
+
+  assert.match(sql, /add column if not exists route text not null default ''/i);
+});

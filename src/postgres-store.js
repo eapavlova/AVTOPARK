@@ -170,6 +170,7 @@ async function loadState(client) {
       endOdometer: nullableNumber(row.end_odometer),
       startFuel: nullableNumber(row.start_fuel),
       endFuel: nullableNumber(row.end_fuel),
+      route: row.route,
       note: row.note
     })),
     waybillRevisions: waybillRevisions.rows.map((row) => ({
@@ -258,11 +259,11 @@ async function syncState(client, state) {
   ], transferRows.filter((row) => row[2] === 'PENDING'));
   await upsertRows(client, 'waybills', [
     'id', 'vehicle_id', 'driver_id', 'waybill_date', 'created_at', 'status', 'distance_km', 'fuel_added',
-    'fuel_spent', 'reported_end_odometer', 'reported_end_fuel', 'start_odometer', 'end_odometer', 'start_fuel', 'end_fuel', 'note'
+    'fuel_spent', 'reported_end_odometer', 'reported_end_fuel', 'start_odometer', 'end_odometer', 'start_fuel', 'end_fuel', 'route', 'note'
   ], state.waybills.map((waybill) => [
     waybill.id, waybill.vehicleId, waybill.driverId, waybill.waybillDate, waybill.createdAt, waybill.status,
     waybill.distanceKm, waybill.fuelAdded, waybill.fuelSpent, waybill.reportedEndOdometer, waybill.reportedEndFuel,
-    waybill.startOdometer, waybill.endOdometer, waybill.startFuel, waybill.endFuel, waybill.note
+    waybill.startOdometer, waybill.endOdometer, waybill.startFuel, waybill.endFuel, waybill.route, waybill.note
   ]));
   await upsertRows(client, 'waybill_revisions', [
     'id', 'waybill_id', 'actor_id', 'waybill_status', 'before_data', 'after_data', 'created_at'

@@ -180,11 +180,22 @@ test('fleet manager cannot take a second active vehicle', () => {
 
 test('waybill can be created only for the currently assigned vehicle', () => {
   let state = baseState();
+  const assignedAt = new Date().toISOString();
+  const waybillDate = assignedAt.slice(0, 10);
   state = assignFreeVehicle(state, {
     actorId: 'u-driver-1',
     driverId: 'u-driver-1',
     vehicleId: 'veh-1',
-    assignedAt: '2026-08-02T09:00:00.000Z'
+    assignedAt
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate,
+    distanceKm: 10,
+    fuelAdded: 0,
+    fuelSpent: 1
   });
   state = initiateDriverTransfer(state, {
     actorId: 'u-driver-1',
@@ -195,14 +206,14 @@ test('waybill can be created only for the currently assigned vehicle', () => {
   state = acceptDriverTransfer(state, {
     actorId: 'u-driver-2',
     transferId: 'trn-1',
-    resolvedAt: '2026-08-03T10:00:00.000Z'
+    resolvedAt: assignedAt
   });
 
   assert.throws(() => createWaybill(state, {
     actorId: 'u-driver-1',
     driverId: 'u-driver-1',
     vehicleId: 'veh-1',
-    waybillDate: '2026-08-02',
+    waybillDate,
     distanceKm: 15,
     fuelAdded: 0,
     fuelSpent: 2
@@ -212,14 +223,14 @@ test('waybill can be created only for the currently assigned vehicle', () => {
     actorId: 'u-driver-2',
     driverId: 'u-driver-2',
     vehicleId: 'veh-1',
-    waybillDate: '2026-08-03',
+    waybillDate,
     distanceKm: 20,
     fuelAdded: 0,
     fuelSpent: 3
   });
 
-  assert.equal(state.waybills.length, 1);
-  assert.equal(state.waybills[0].driverId, 'u-driver-2');
+  assert.equal(state.waybills.length, 2);
+  assert.equal(state.waybills.at(-1).driverId, 'u-driver-2');
 });
 
 test('fleet manager can create a waybill for their currently assigned vehicle', () => {
@@ -247,11 +258,21 @@ test('fleet manager can create a waybill for their currently assigned vehicle', 
 
 test('driver can transfer a vehicle to fleet manager, who becomes its driver after acceptance', () => {
   let state = baseState();
+  const assignedAt = new Date().toISOString();
   state = assignFreeVehicle(state, {
     actorId: 'u-driver-1',
     driverId: 'u-driver-1',
     vehicleId: 'veh-1',
-    assignedAt: '2026-08-02T09:00:00.000Z'
+    assignedAt
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: assignedAt.slice(0, 10),
+    distanceKm: 10,
+    fuelAdded: 0,
+    fuelSpent: 1
   });
   state = initiateDriverTransfer(state, {
     actorId: 'u-driver-1',
@@ -273,11 +294,21 @@ test('driver can transfer a vehicle to fleet manager, who becomes its driver aft
 
 test('transfer rejection requires reason and keeps car with original driver', () => {
   let state = baseState();
+  const assignedAt = new Date().toISOString();
   state = assignFreeVehicle(state, {
     actorId: 'u-driver-1',
     driverId: 'u-driver-1',
     vehicleId: 'veh-1',
-    assignedAt: '2026-08-02T09:00:00.000Z'
+    assignedAt
+  });
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: assignedAt.slice(0, 10),
+    distanceKm: 10,
+    fuelAdded: 0,
+    fuelSpent: 1
   });
   state = initiateDriverTransfer(state, {
     actorId: 'u-driver-1',
@@ -396,6 +427,25 @@ test('driver cannot return a vehicle until every ownership day has a waybill', (
   });
 
   assert.equal(state.vehicles.find((vehicle) => vehicle.id === 'veh-1').status, VehicleStatus.RETURN_PENDING);
+});
+
+test('driver and fleet manager cannot transfer a vehicle until every ownership day has a waybill', () => {
+  for (const [driverId, recipientId] of [['u-driver-1', 'u-driver-2'], ['u-fleet-1', 'u-driver-1']]) {
+    let state = baseState();
+    state = assignFreeVehicle(state, {
+      actorId: driverId,
+      driverId,
+      vehicleId: 'veh-1',
+      assignedAt: new Date().toISOString()
+    });
+
+    assert.throws(() => initiateDriverTransfer(state, {
+      actorId: driverId,
+      fromDriverId: driverId,
+      toDriverId: recipientId,
+      vehicleId: 'veh-1'
+    }), /нельзя передать автомобиль/i);
+  }
 });
 
 test('fleet manager own return immediately frees the vehicle without acceptance', () => {
@@ -656,6 +706,45 @@ test('reported end fuel calculates fuel spent automatically', () => {
   assert.equal(waybill.endFuel, 52);
 });
 
+test('waybill accepts an empty refueling value as zero liters', () => {
+  let state = assignedState();
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    endOdometer: 1030,
+    endFuel: 45
+  });
+
+  const waybill = state.waybills[0];
+  assert.equal(waybill.fuelAdded, 0);
+  assert.equal(waybill.fuelSpent, 5);
+});
+
+test('driver route is stored in a waybill and can be corrected', () => {
+  let state = assignedState();
+  state = createWaybill(state, {
+    actorId: 'u-driver-1',
+    driverId: 'u-driver-1',
+    vehicleId: 'veh-1',
+    waybillDate: '2026-08-03',
+    endOdometer: 1030,
+    endFuel: 45,
+    route: 'Гараж → склад № 1 → гараж'
+  });
+  assert.equal(state.waybills[0].route, 'Гараж → склад № 1 → гараж');
+
+  state = updateWaybill(state, {
+    actorId: 'u-driver-1',
+    waybillId: 'way-1',
+    endOdometer: 1030,
+    endFuel: 45,
+    route: 'Гараж → АЗС → склад № 1 → гараж'
+  });
+  assert.equal(state.waybills[0].route, 'Гараж → АЗС → склад № 1 → гараж');
+});
+
 test('reported end fuel cannot exceed available fuel', () => {
   const state = assignedState();
   assert.throws(() => createWaybill(state, {
@@ -768,10 +857,10 @@ test('driver corrects own waybill and the revision recalculates following sheets
   assert.equal(next.startFuel, 45);
   assert.equal(state.waybillRevisions.length, 1);
   assert.deepEqual(state.waybillRevisions[0].before, {
-    distanceKm: 30, fuelAdded: 0, fuelSpent: 4, note: 'Первая версия'
+    distanceKm: 30, fuelAdded: 0, fuelSpent: 4, route: '', note: 'Первая версия'
   });
   assert.deepEqual(state.waybillRevisions[0].after, {
-    distanceKm: 40, fuelAdded: 0, fuelSpent: 5, note: 'Исправлено водителем'
+    distanceKm: 40, fuelAdded: 0, fuelSpent: 5, route: '', note: 'Исправлено водителем'
   });
   assert.equal(state.auditLog[0].action, 'WAYBILL_UPDATED');
 });

@@ -32,8 +32,8 @@
           <button class="nav-item" data-view="driverTransfers" data-roles="DRIVER,FLEET_MANAGER,ADMIN">Передать другому водителю</button>
           <button class="nav-item nav-item-with-count" data-view="pendingTransfers" data-roles="DRIVER,FLEET_MANAGER"><span>Ожидает приёмки</span><span class="nav-count" id="pendingTransfersCount" hidden>0</span></button>
           <button class="nav-item" data-view="fleetReturns" data-roles="DRIVER,FLEET_MANAGER,ADMIN">Сдать в автопарк</button>
-          <button class="nav-item" data-view="waybills" data-roles="DRIVER,FLEET_MANAGER,ACCOUNTANT,ADMIN">Путевые листы</button>
-          <button class="nav-item" data-view="accounting" data-roles="ACCOUNTANT,ADMIN">Бухгалтерия</button>
+          <button class="nav-item" data-view="waybills" data-roles="DRIVER,FLEET_MANAGER,ADMIN">Мои путевые листы</button>
+          <button class="nav-item nav-item-with-count" data-view="accounting" data-roles="ACCOUNTANT,ADMIN"><span>Путевые листы</span><span class="nav-count" id="accountingReviewCount" hidden>0</span></button>
           <button class="nav-item" data-view="reports" data-roles="FLEET_MANAGER,ACCOUNTANT,ADMIN">Отчеты</button>
           <button class="nav-item" data-view="users" data-roles="ADMIN">Пользователи</button>
           <button class="nav-item" data-view="audit" data-roles="ADMIN">Аудит</button>
@@ -150,13 +150,13 @@
             <h2>Передать другому водителю</h2>
             <label class="field"><span>Автомобиль <b class="required-mark" aria-hidden="true">*</b></span><select name="vehicleId" id="transferVehicle" required></select></label>
             <label class="field"><span>Кому <b class="required-mark" aria-hidden="true">*</b></span><select name="toDriverId" id="transferDriver" required></select></label>
-            <label class="field"><span>Фото автомобиля, минимум 4 ракурса <b class="required-mark" aria-hidden="true">*</b></span><input name="vehiclePhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple required></label>
+            <label class="field"><span>Фото автомобиля, минимум 4 ракурса <b class="required-mark" aria-hidden="true">*</b></span><input name="vehiclePhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple required><small class="file-selection-hint" data-vehicle-photo-count>Выбрано фотографий: 0. Их можно добавлять несколькими выборами.</small></label>
             <label class="field"><span>Фото приборной панели <b class="required-mark" aria-hidden="true">*</b></span><input name="dashboardPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple required></label>
             <label class="field"><span>Дополнительные фото</span><input name="extraPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
             <label class="field"><span>Текущий пробег, км <b class="required-mark" aria-hidden="true">*</b></span><input name="odometer" type="number" min="0" step="1" required></label>
             <fieldset class="transfer-documents"><legend>Передаваемые документы</legend><label><input type="checkbox" name="documents" value="STS"> СТС</label><label><input type="checkbox" name="documents" value="SERVICE_BOOK"> Сервисная книжка</label><label><input type="checkbox" name="documents" value="FUEL_CARD"> Топливная карта</label><label><input type="checkbox" name="documents" value="INSURANCE_POLICY"> Страховой полис</label></fieldset>
             <label class="field"><span>Комментарий</span><textarea name="comment" maxlength="2000" rows="3"></textarea></label>
-            <button class="primary" type="submit">Инициировать передачу</button>
+            <button class="primary" type="submit">Передать</button>
           </form>
         </section>
 
@@ -193,26 +193,29 @@
                 <input id="waybillVehicleId" name="vehicleId" type="hidden">
               </label>
               <label class="field"><span>Дата листа <b class="required-mark" aria-hidden="true">*</b></span><input name="waybillDate" type="date" required></label>
-              <label class="field"><span>Показание спидометра на конец дня <b class="required-mark" aria-hidden="true">*</b></span><input name="endOdometer" type="number" min="0" required></label>
-              <label class="field"><span>Заправлено, л <b class="required-mark" aria-hidden="true">*</b></span><input name="fuelAdded" type="number" min="0" required></label>
+              <label class="field"><span>Показание спидометра на конец дня, км <b class="required-mark" aria-hidden="true">*</b></span><input name="endOdometer" type="number" min="0" required></label>
+              <label class="field"><span>Заправлено, л</span><input name="fuelAdded" type="number" min="0"></label>
               <label class="field"><span>Остаток топлива в баке на конец дня, л <b class="required-mark" aria-hidden="true">*</b></span><input name="endFuel" type="number" min="0" required></label>
               <label class="field"><span>Чеки с заправки <b class="required-mark" id="waybillReceiptRequiredMark" aria-hidden="true" hidden>*</b></span><input name="fuelReceiptFiles" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple></label>
               <div class="form-hint warning" id="waybillReceiptStatus" hidden></div>
+              <label class="field"><span>Маршрут: начальный, промежуточный и конечный пункты</span><textarea name="route" maxlength="2000" rows="3" placeholder="Например: гараж → склад № 1 → АЗС → гараж"></textarea></label>
               <label class="field"><span>Примечание</span><textarea name="note" maxlength="2000" rows="3"></textarea></label>
               <button class="primary" type="submit">Создать лист</button>
             </form>
-            <div class="panel wide">
+            <div class="panel wide waybills-history-panel">
               <h2>Хронология</h2>
               <div class="table-wrap">
                 <table class="waybills-table">
                   <thead>
                     <tr>
-                      <th>Дата</th>
-                      <th>Авто</th>
-                      <th>Водитель</th>
-                      <th>Пробег</th>
-                      <th>Топливо</th>
-                      <th>Статус</th>
+                      <th><button class="sort-button" type="button" data-waybill-sort="waybillDate" data-waybill-sort-label="Дата">Дата</button></th>
+                      <th><button class="sort-button" type="button" data-waybill-sort="vehicle" data-waybill-sort-label="Авто">Авто</button></th>
+                      <th><button class="sort-button" type="button" data-waybill-sort="driver" data-waybill-sort-label="Водитель">Водитель</button></th>
+                      <th><button class="sort-button" type="button" data-waybill-sort="status" data-waybill-sort-label="Статус">Статус</button></th>
+                      <th><button class="sort-button" type="button" data-waybill-sort="odometer" data-waybill-sort-label="Показания спидометра на конец дня">Показания спидометра на конец дня</button></th>
+                      <th><button class="sort-button" type="button" data-waybill-sort="fuel" data-waybill-sort-label="Топливо на конец дня">Топливо на конец дня</button></th>
+                      <th><button class="sort-button" type="button" data-waybill-sort="fuelAdded" data-waybill-sort-label="Заправлено">Заправлено</button></th>
+                      <th>Файл</th>
                     </tr>
                   </thead>
                   <tbody id="waybillsTable"></tbody>
@@ -224,7 +227,7 @@
 
         <section class="view" id="accountingView">
           <div class="panel">
-            <h2>Очередь бухгалтера</h2>
+            <h2>Поступившие путевые листы</h2>
             <div id="accountingList" class="list"></div>
           </div>
         </section>
@@ -247,10 +250,27 @@
               </select></label>
             </div>
             <div class="actions report-actions">
+              <button class="primary" type="submit" data-format="preview">Показать на странице</button>
               <button class="secondary" type="submit" data-format="csv">Скачать CSV</button>
               <button class="primary" type="submit" data-format="xlsx">Скачать XLSX</button>
             </div>
           </form>
+          <section class="panel" id="reportPreviewPanel" hidden>
+            <h2>Путевые листы</h2>
+            <p id="reportPreviewSummary"></p>
+            <div class="table-wrap">
+              <table class="report-table">
+                <thead>
+                  <tr>
+                    <th>Дата</th><th>Номер листа</th><th>Госномер</th><th>Автомобиль</th><th>Водитель</th><th>Статус</th>
+                    <th>Пробег, начало</th><th>Пробег за день</th><th>Пробег, конец</th>
+                    <th>Топливо, начало</th><th>Заправлено</th><th>Потрачено</th><th>Топливо, конец</th><th>Примечание</th>
+                  </tr>
+                </thead>
+                <tbody id="reportPreviewTable"></tbody>
+              </table>
+            </div>
+          </section>
         </section>
 
         <section class="view" id="usersView">
@@ -340,9 +360,10 @@
           <h2>Исправление путевого листа</h2>
           <button class="icon-button" id="closeWaybillEdit" type="button" aria-label="Закрыть" title="Закрыть">×</button>
         </div>
-        <label class="field"><span>Показание спидометра на конец дня <b class="required-mark" aria-hidden="true">*</b></span><input name="endOdometer" type="number" min="0" step="any" required></label>
-        <label class="field"><span>Заправлено, л <b class="required-mark" aria-hidden="true">*</b></span><input name="fuelAdded" type="number" min="0" step="any" required></label>
+        <label class="field"><span>Показание спидометра на конец дня, км <b class="required-mark" aria-hidden="true">*</b></span><input name="endOdometer" type="number" min="0" step="any" required></label>
+        <label class="field"><span>Заправлено, л</span><input name="fuelAdded" type="number" min="0" step="any"></label>
         <label class="field"><span>Остаток топлива в баке на конец дня, л <b class="required-mark" aria-hidden="true">*</b></span><input name="endFuel" type="number" min="0" step="any" required></label>
+        <label class="field"><span>Маршрут: начальный, промежуточный и конечный пункты</span><textarea name="route" maxlength="2000" rows="3"></textarea></label>
         <label class="field"><span>Примечание</span><textarea name="note" maxlength="2000" rows="4"></textarea></label>
         <div class="actions dialog-actions">
           <button class="ghost" id="cancelWaybillEdit" type="button">Отмена</button>
@@ -361,6 +382,25 @@
           <button class="primary" type="submit">Загрузить</button>
         </form>
         <div class="file-list" id="waybillFilesList"></div>
+      </div>
+    </dialog>
+    <dialog class="edit-dialog files-dialog" id="accountingWaybillDialog">
+      <div class="dialog-content">
+        <div class="dialog-heading">
+          <h2 id="accountingWaybillTitle">Путевой лист</h2>
+          <button class="icon-button" id="closeAccountingWaybill" type="button" aria-label="Закрыть" title="Закрыть">×</button>
+        </div>
+        <div id="accountingWaybillContent"></div>
+        <div class="actions" id="accountingWaybillActions"></div>
+      </div>
+    </dialog>
+    <dialog class="edit-dialog file-preview-dialog" id="filePreviewDialog">
+      <div class="dialog-content">
+        <div class="dialog-heading">
+          <h2 id="filePreviewTitle">Просмотр файла</h2>
+          <button class="icon-button" id="closeFilePreview" type="button" aria-label="Закрыть" title="Закрыть">×</button>
+        </div>
+        <div class="file-preview-content" id="filePreviewContent"></div>
       </div>
     </dialog>
     <dialog class="edit-dialog files-dialog" id="transferDetailsDialog">

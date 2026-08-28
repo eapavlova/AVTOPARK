@@ -83,6 +83,7 @@ create table if not exists waybills (
   end_odometer numeric(14, 3),
   start_fuel numeric(14, 3),
   end_fuel numeric(14, 3),
+  route text not null default '',
   note text not null default '',
   check (reported_end_odometer is null or reported_end_odometer >= 0),
   check (reported_end_fuel is null or reported_end_fuel >= 0),

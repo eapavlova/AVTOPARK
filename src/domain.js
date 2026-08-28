@@ -336,6 +336,7 @@ export function initiateDriverTransfer(state, command) {
   if (![Roles.DRIVER, Roles.FLEET_MANAGER].includes(toDriver.role)) {
     throw new DomainError('Получателем передачи может быть только водитель или заведующий автопарком.');
   }
+  assertWaybillsCompleteForTransfer(state, vehicle.id, fromDriver.id, new Date().toISOString());
 
   if (hasActiveVehicle(state, toDriver.id)) {
     throw new DomainError('Принимающий водитель уже имеет активный автомобиль.');
@@ -620,6 +621,7 @@ export function createWaybill(state, command) {
     endOdometer: null,
     startFuel: null,
     endFuel: null,
+    route: normalizeRoute(command.route),
     note: normalizeNote(command.note)
   };
 
@@ -648,6 +650,7 @@ export function updateWaybill(state, command) {
     fuelAdded: fuelInput.fuelAdded,
     fuelSpent: fuelInput.fuelSpent,
     reportedEndFuel: fuelInput.reportedEndFuel,
+    route: normalizeRoute(command.route),
     note: normalizeNote(command.note)
   };
   const before = waybillRevisionData(waybill);
@@ -936,6 +939,13 @@ function assertWaybillsCompleteForReturn(state, vehicleId, driverId, returnedAt)
   }
 }
 
+function assertWaybillsCompleteForTransfer(state, vehicleId, driverId, transferredAt) {
+  const missingDates = missingWaybillDatesForReturn(state, vehicleId, driverId, transferredAt);
+  if (missingDates.length > 0) {
+    throw new DomainError(`Нельзя передать автомобиль: не созданы путевые листы за даты ${formatDateList(missingDates)}.`);
+  }
+}
+
 function missingWaybillDatesForReturn(state, vehicleId, driverId, returnedAt) {
   const assignment = state.assignments.find((item) =>
     item.vehicleId === vehicleId && item.driverId === driverId && item.endAt === null
@@ -977,7 +987,7 @@ function normalizeWaybillOdometerInput(state, vehicleId, waybillDate, command, e
   requireNumber(command.endOdometer, 'endOdometer');
   const startOdometer = previousOdometerBeforeWaybill(state, vehicleId, waybillDate, excludedWaybillId);
   if (command.endOdometer < startOdometer) {
-    throw new DomainError('Показание спидометра на конец дня не может быть меньше начального пробега.');
+    throw new DomainError('Пробег на конец дня не может быть меньше пробега на начало дня.');
   }
   return {
     distanceKm: command.endOdometer - startOdometer,
@@ -986,8 +996,11 @@ function normalizeWaybillOdometerInput(state, vehicleId, waybillDate, command, e
 }
 
 function normalizeWaybillFuelInput(state, vehicleId, waybillDate, command, excludedWaybillId = null) {
-  requireNumber(command.fuelAdded, 'fuelAdded');
-  if (command.fuelAdded < 0) {
+  const fuelAdded = command.fuelAdded === undefined || command.fuelAdded === null || command.fuelAdded === ''
+    ? 0
+    : command.fuelAdded;
+  requireNumber(fuelAdded, 'fuelAdded');
+  if (fuelAdded < 0) {
     throw new DomainError('Пробег и топливные значения не могут быть отрицательными.');
   }
   const hasEndFuel = command.endFuel !== undefined
@@ -999,7 +1012,7 @@ function normalizeWaybillFuelInput(state, vehicleId, waybillDate, command, exclu
       throw new DomainError('Пробег и топливные значения не могут быть отрицательными.');
     }
     return {
-      fuelAdded: command.fuelAdded,
+      fuelAdded,
       fuelSpent: command.fuelSpent,
       reportedEndFuel: null
     };
@@ -1010,12 +1023,12 @@ function normalizeWaybillFuelInput(state, vehicleId, waybillDate, command, exclu
   if (command.endFuel < 0) {
     throw new DomainError('Остаток топлива в баке на конец дня не может быть отрицательным.');
   }
-  if (command.endFuel > startFuel + command.fuelAdded) {
+  if (command.endFuel > startFuel + fuelAdded) {
     throw new DomainError('Остаток топлива в баке на конец дня не может быть больше начального остатка и заправленного топлива.');
   }
   return {
-    fuelAdded: command.fuelAdded,
-    fuelSpent: startFuel + command.fuelAdded - command.endFuel,
+    fuelAdded,
+    fuelSpent: startFuel + fuelAdded - command.endFuel,
     reportedEndFuel: command.endFuel
   };
 }
@@ -1174,11 +1187,18 @@ function normalizeNote(value) {
   return note;
 }
 
+function normalizeRoute(value) {
+  const route = value === undefined || value === null ? '' : String(value).trim();
+  if (route.length > 2000) throw new DomainError('Маршрут слишком длинный.');
+  return route;
+}
+
 function waybillRevisionData(waybill) {
   return {
     distanceKm: waybill.distanceKm,
     fuelAdded: waybill.fuelAdded,
     fuelSpent: waybill.fuelSpent,
+    route: waybill.route ?? '',
     note: waybill.note ?? ''
   };
 }

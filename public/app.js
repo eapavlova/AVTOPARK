@@ -4,9 +4,13 @@ const state = {
   actorId: 'u-driver-1',
   session: null,
   fileWaybillId: null,
+  filePreviewUrl: null,
+  reportPreview: null,
+  myWaybillsSort: { key: 'waybillDate', direction: 'desc' },
   registryFilters: {},
   registrySort: { key: 'recordedAt', direction: 'desc' },
-  registrySuggestionsOpen: false
+  registrySuggestionsOpen: false,
+  takeVehicleStatusSuppressed: false
 };
 
 const titles = {
@@ -16,8 +20,8 @@ const titles = {
   driverTransfers: ['Передать другому водителю', 'Передача автомобиля другому водителю.'],
   pendingTransfers: ['Ожидает приёмки', 'Автомобили, переданные вам и ожидающие вашего решения.'],
   fleetReturns: ['Сдать в автопарк', 'Передача автомобиля на приемку в автопарк.'],
-  waybills: ['Путевые листы', 'Одна поездка в одном листе, хронология по дате листа.'],
-  accounting: ['Бухгалтерия', 'Проверка, возврат, обработка и отклонение.'],
+  waybills: ['Мои путевые листы', 'Одна поездка в одном листе, хронология по дате листа.'],
+  accounting: ['Путевые листы', 'Проверка, возврат, обработка и отклонение.'],
   reports: ['Отчеты', 'Фильтры и выгрузка путевых листов.'],
   users: ['Пользователи', 'Роли и доступ сотрудников к приложению.'],
   audit: ['Аудит', 'Журнал значимых операций серверной части.']
@@ -62,6 +66,7 @@ function render() {
   renderTransferOptions();
   renderPendingTransfers();
   renderPendingTransfersCount();
+  renderAccountingReviewCount();
   renderWaybillOptions();
   renderWaybills();
   renderAccounting();
@@ -110,12 +115,11 @@ function renderCurrentVehicleSummary() {
   container.classList.toggle('has-vehicle', Boolean(vehicle));
   container.classList.toggle('no-vehicle', !vehicle);
   if (!vehicle) {
-    container.innerHTML = '<small>Статус автомобиля</small><strong>За вами не закреплен автомобиль</strong>';
+    container.innerHTML = '<strong>За вами не закреплен автомобиль</strong>';
     return;
   }
 
   container.innerHTML = `
-    <small>Статус автомобиля</small>
     <strong>За вами закреплен автомобиль</strong>
     <span>${escapeHtml(vehicleLabel(vehicle))}</span>
   `;
@@ -292,7 +296,8 @@ function renderTakeVehicleStatus(blockerSelector, panelSelector, assignedVehicle
   const blocker = document.querySelector(blockerSelector);
   const panel = document.querySelector(panelSelector);
   const isBlocked = Boolean(assignedVehicle);
-  blocker.hidden = !isBlocked;
+  const showBlocker = isBlocked && !state.takeVehicleStatusSuppressed;
+  blocker.hidden = !showBlocker;
   blocker.textContent = assignedVehicle
     ? `Автомобиль взять нельзя, так как за вами уже закреплен автомобиль ${vehicleLabel(assignedVehicle)}.`
     : '';
@@ -325,10 +330,13 @@ function renderVehicleRows(selector, vehicles, { canAssign, canEdit, showAssign 
         showMessage('Автомобиль взять нельзя, так как за вами уже закреплен автомобиль.', true);
         return;
       }
+      const vehicle = vehicleById(button.dataset.assign);
       await runAction(() => api(`/api/vehicles/${button.dataset.assign}/assign-free`, {
         method: 'POST',
         body: { driverId: state.actorId }
-      }));
+      }), `Автомобиль ${vehicleLabel(vehicle)} закреплен за вами.`, () => {
+        state.takeVehicleStatusSuppressed = true;
+      });
     });
   });
   tbody.querySelectorAll('[data-edit-vehicle]').forEach((button) => {
@@ -394,8 +402,11 @@ function renderDriverTransferStatus() {
   const blocker = document.querySelector('#transferVehicleStatus');
   const button = document.querySelector('#transferForm button[type="submit"]');
   const hasVehicle = Boolean(select.value);
+  const missingDates = missingWaybillDatesForReturn(select.value);
   const blockerText = hasVehicle
-    ? ''
+    ? missingDates.length > 0
+      ? transferWaybillMissingMessage(missingDates)
+      : ''
     : 'За вами сейчас не закреплен автомобиль. Передать автомобиль другому водителю нельзя.';
   const isBlocked = Boolean(blockerText);
 
@@ -446,6 +457,10 @@ function missingWaybillDatesForReturn(vehicleId) {
 
 function returnWaybillMissingMessage(missingDates) {
   return `Нельзя сдать автомобиль: сначала сдайте путевые листы за даты ${formatDateList(missingDates)}.`;
+}
+
+function transferWaybillMissingMessage(missingDates) {
+  return `Нельзя передать автомобиль: сначала сдайте путевые листы за даты ${formatDateList(missingDates)}.`;
 }
 
 function pendingTransfersForCurrentUser() {
@@ -535,6 +550,13 @@ function renderPendingTransfersCount() {
   badge.textContent = String(count);
 }
 
+function renderAccountingReviewCount() {
+  const count = state.data.waybills.filter((waybill) => waybill.status === 'ACCOUNTING_REVIEW').length;
+  const badge = document.querySelector('#accountingReviewCount');
+  badge.hidden = count === 0;
+  badge.textContent = String(count);
+}
+
 async function openTransferDetails(transferId) {
   const transfer = state.data.transfers.find((item) => item.id === transferId);
   if (!transfer) return;
@@ -567,6 +589,12 @@ function renderWaybillOptions() {
   const vehicleIdInput = document.querySelector('#waybillVehicleId');
   const blocker = document.querySelector('#waybillVehicleStatus');
   const submitButton = document.querySelector('#waybillForm button[type="submit"]');
+  const canCreateWaybill = ['DRIVER', 'FLEET_MANAGER'].includes(currentUser().role);
+  if (!canCreateWaybill) {
+    blocker.hidden = true;
+    blocker.textContent = '';
+    return;
+  }
   const isBlocked = !vehicle;
 
   vehicleLabelInput.value = vehicle ? vehicleLabel(vehicle) : '';
@@ -596,6 +624,7 @@ function prepareWaybillFormDefaults() {
     form.elements.fuelAdded.value = '';
     form.elements.endFuel.value = '';
     form.elements.fuelReceiptFiles.value = '';
+    form.elements.route.value = '';
     form.elements.note.value = '';
     return;
   }
@@ -629,41 +658,78 @@ function currentVehicleForCurrentUser() {
 
 function renderWaybills() {
   const tbody = document.querySelector('#waybillsTable');
-  tbody.innerHTML = [...state.data.waybills]
-    .sort((a, b) => b.waybillDate.localeCompare(a.waybillDate))
+  renderMyWaybillSortHeaders();
+  tbody.innerHTML = sortMyWaybills(state.data.waybills.filter((waybill) => waybill.driverId === state.actorId))
     .map((waybill) => {
       const revisions = state.data.waybillRevisions.filter((revision) => revision.waybillId === waybill.id).length;
-      const files = state.data.waybillFiles.filter((file) => file.waybillId === waybill.id).length;
+      const files = state.data.waybillFiles.filter((file) => file.waybillId === waybill.id);
+      const fileLink = files.length === 0
+        ? '—'
+        : files.length === 1
+          ? `<button class="transfer-title-link" type="button" data-preview-file="${files[0].id}">${escapeHtml(files[0].originalName)}</button>`
+          : `<button class="transfer-title-link" type="button" data-waybill-details="${waybill.id}">Файлы: ${files.length}</button>`;
       return `<tr>
-      <td>${waybill.waybillDate}</td>
-      <td>${vehicleLabel(vehicleById(waybill.vehicleId))}</td>
+      <td><button class="transfer-title-link" type="button" data-waybill-details="${waybill.id}">${formatDate(waybill.waybillDate)}</button></td>
+      <td><button class="transfer-title-link" type="button" data-waybill-details="${waybill.id}">${escapeHtml(vehicleLabel(vehicleById(waybill.vehicleId)))}</button></td>
       <td>${userName(waybill.driverId)}</td>
-      <td>${waybill.startOdometer ?? '-'} -> ${waybill.endOdometer ?? '-'}</td>
-      <td>${waybill.startFuel ?? '-'} -> ${waybill.endFuel ?? '-'}</td>
       <td>${statusBadge(waybill.status)}${revisions ? `<div class="revision-count">Исправлений: ${revisions}</div>` : ''}
         <div class="table-actions waybill-actions">
           ${driverCanEdit(waybill) ? `<button class="ghost compact" data-edit-waybill="${waybill.id}">Изменить</button>` : ''}
-          <button class="ghost compact" data-files-waybill="${waybill.id}">${files ? `Файлы: ${files}` : 'Файлы'}</button>
           ${driverCanSubmit(waybill) ? `<button class="secondary compact" data-submit-waybill="${waybill.id}">Отправить на проверку</button>` : ''}
         </div>
       </td>
+      <td>${formatWaybillEndValue(waybill.endOdometer, 'км')}</td>
+      <td>${formatWaybillEndValue(waybill.endFuel, 'л')}</td>
+      <td>${formatWaybillEndValue(waybill.fuelAdded, 'л')}</td>
+      <td>${fileLink}</td>
     </tr>`;
     }).join('');
 
   tbody.querySelectorAll('[data-submit-waybill]').forEach((button) => {
-    button.addEventListener('click', () => runAction(() => api(`/api/waybills/${button.dataset.submitWaybill}/status`, {
-      method: 'PATCH',
-      body: { status: 'ACCOUNTING_REVIEW' }
-    })));
+    button.addEventListener('click', () => {
+      const waybill = state.data.waybills.find((item) => item.id === button.dataset.submitWaybill);
+      const vehicle = vehicleById(waybill.vehicleId);
+      runAction(() => api(`/api/waybills/${waybill.id}/status`, {
+        method: 'PATCH',
+        body: { status: 'ACCOUNTING_REVIEW' }
+      }), `Путевой лист по автомобилю ${vehicleLabel(vehicle)} от ${formatDate(waybill.waybillDate)} направлен на проверку бухгалтеру.`);
+    });
+  });
+  tbody.querySelectorAll('[data-waybill-details]').forEach((button) => {
+    button.addEventListener('click', () => openWaybillDetails(button.dataset.waybillDetails));
+  });
+  tbody.querySelectorAll('[data-preview-file]').forEach((button) => {
+    button.addEventListener('click', () => openWaybillFile(button.dataset.previewFile));
   });
   tbody.querySelectorAll('[data-edit-waybill]').forEach((button) => {
     button.addEventListener('click', () => openWaybillEditor(
       state.data.waybills.find((waybill) => waybill.id === button.dataset.editWaybill)
     ));
   });
-  tbody.querySelectorAll('[data-files-waybill]').forEach((button) => {
-    button.addEventListener('click', () => openWaybillFiles(button.dataset.filesWaybill));
+}
+
+function renderMyWaybillSortHeaders() {
+  document.querySelectorAll('[data-waybill-sort]').forEach((button) => {
+    const active = button.dataset.waybillSort === state.myWaybillsSort.key;
+    button.classList.toggle('active', active);
+    button.textContent = `${button.dataset.waybillSortLabel}${active ? (state.myWaybillsSort.direction === 'asc' ? ' ↑' : ' ↓') : ''}`;
   });
+}
+
+function sortMyWaybills(waybills) {
+  const valueFor = (waybill) => ({
+    waybillDate: waybill.waybillDate,
+    vehicle: vehicleLabel(vehicleById(waybill.vehicleId)),
+    driver: userName(waybill.driverId),
+    status: waybill.status,
+    odometer: waybill.endOdometer,
+    fuel: waybill.endFuel,
+    fuelAdded: waybill.fuelAdded
+  })[state.myWaybillsSort.key];
+  const factor = state.myWaybillsSort.direction === 'asc' ? 1 : -1;
+  return [...waybills].sort((left, right) => String(valueFor(left)).localeCompare(String(valueFor(right)), 'ru', {
+    numeric: true, sensitivity: 'base'
+  }) * factor);
 }
 
 function openWaybillEditor(waybill) {
@@ -673,6 +739,7 @@ function openWaybillEditor(waybill) {
   form.querySelector('[name="endOdometer"]').value = waybill.endOdometer ?? '';
   form.querySelector('[name="fuelAdded"]').value = waybill.fuelAdded;
   form.querySelector('[name="endFuel"]').value = waybill.endFuel ?? '';
+  form.querySelector('[name="route"]').value = waybill.route ?? '';
   form.querySelector('[name="note"]').value = waybill.note ?? '';
   dialog.showModal();
 }
@@ -696,6 +763,7 @@ function renderWaybillFilesDialog() {
       <span>${formatFileSize(file.sizeBytes)} · ${escapeHtml(userName(file.uploadedBy))}</span>
     </div>
     <div class="table-actions">
+      <button class="ghost compact" data-preview-file="${file.id}">Открыть</button>
       <button class="secondary compact" data-download-file="${file.id}">Скачать</button>
       ${driverCanEdit(waybill) ? `<button class="ghost compact" data-remove-file="${file.id}">Удалить</button>` : ''}
     </div>
@@ -703,6 +771,9 @@ function renderWaybillFilesDialog() {
 
   list.querySelectorAll('[data-download-file]').forEach((button) => {
     button.addEventListener('click', () => downloadWaybillFile(button.dataset.downloadFile));
+  });
+  list.querySelectorAll('[data-preview-file]').forEach((button) => {
+    button.addEventListener('click', () => openWaybillFile(button.dataset.previewFile));
   });
   list.querySelectorAll('[data-remove-file]').forEach((button) => {
     button.addEventListener('click', async () => {
@@ -728,26 +799,64 @@ function renderAccounting() {
   }
   container.innerHTML = queue.map((waybill) => `<article class="row-card">
     <header>
-      <strong>${waybill.waybillDate} · ${vehicleLabel(vehicleById(waybill.vehicleId))}</strong>
+      <strong><button class="transfer-title-link" type="button" data-accounting-waybill="${waybill.id}">${formatDate(waybill.waybillDate)} · ${escapeHtml(vehicleLabel(vehicleById(waybill.vehicleId)))}</button></strong>
       ${statusBadge(waybill.status)}
     </header>
-    <div>Водитель: ${userName(waybill.driverId)} · Пробег: ${waybill.startOdometer ?? '-'} -> ${waybill.endOdometer ?? '-'}</div>
-    <div class="actions">
-      <button class="primary" data-status="${waybill.id}:PROCESSED">Обработано</button>
-      <button class="ghost" data-status="${waybill.id}:DRIVER_CORRECTION">Вернуть водителю</button>
-      <button class="danger" data-status="${waybill.id}:REJECTED">Отклонить</button>
-    </div>
+    <div>Водитель: ${escapeHtml(userName(waybill.driverId))} · Пробег на конец дня: ${formatWaybillEndValue(waybill.endOdometer, 'км')}</div>
+    <div><button class="secondary compact" type="button" data-accounting-waybill="${waybill.id}">Открыть путевой лист</button></div>
   </article>`).join('');
 
-  container.querySelectorAll('[data-status]').forEach((button) => {
+  container.querySelectorAll('[data-accounting-waybill]').forEach((button) => {
+    button.addEventListener('click', () => openWaybillDetails(button.dataset.accountingWaybill));
+  });
+}
+
+function openWaybillDetails(waybillId) {
+  const waybill = state.data.waybills.find((item) => item.id === waybillId);
+  if (!waybill) return;
+  const vehicle = vehicleById(waybill.vehicleId);
+  const files = state.data.waybillFiles.filter((file) => file.waybillId === waybill.id);
+  const dialog = document.querySelector('#accountingWaybillDialog');
+  document.querySelector('#accountingWaybillTitle').textContent = `Путевой лист от ${formatDate(waybill.waybillDate)}`;
+  document.querySelector('#accountingWaybillContent').innerHTML = `
+    <dl class="transfer-details">
+      <dt>Автомобиль</dt><dd>${escapeHtml(vehicleLabel(vehicle))}</dd>
+      <dt>Водитель</dt><dd>${escapeHtml(userName(waybill.driverId))}</dd>
+      <dt>Дата листа</dt><dd>${formatDate(waybill.waybillDate)}</dd>
+      <dt>Показание спидометра на конец дня</dt><dd>${formatWaybillEndValue(waybill.endOdometer, 'км')}</dd>
+      <dt>Пробег за день</dt><dd>${formatNumber(waybill.distanceKm)} км</dd>
+      <dt>Остаток топлива в баке на конец дня</dt><dd>${formatWaybillEndValue(waybill.endFuel, 'л')}</dd>
+      <dt>Заправлено</dt><dd>${formatNumber(waybill.fuelAdded)} л</dd>
+      <dt>Потрачено</dt><dd>${formatNumber(waybill.fuelSpent)} л</dd>
+      <dt>Маршрут</dt><dd>${escapeHtml(waybill.route || '—')}</dd>
+      <dt>Примечание</dt><dd>${escapeHtml(waybill.note || '—')}</dd>
+    </dl>
+    <h3>Прикрепленные файлы</h3>
+    <div class="actions"><button class="ghost compact" type="button" data-details-files="${waybill.id}">${files.length ? `Файлы: ${files.length}` : 'Файлы'}</button></div>
+    <div class="file-list">${files.length ? files.map((file) => `<article class="file-row"><div class="file-details"><strong>${escapeHtml(file.originalName)}</strong><span>${formatFileSize(file.sizeBytes)} · ${escapeHtml(userName(file.uploadedBy))}</span></div><div class="table-actions"><button class="ghost compact" type="button" data-preview-file="${file.id}">Открыть</button><button class="secondary compact" type="button" data-accounting-download-file="${file.id}">Скачать</button></div></article>`).join('') : '<p>Файлы не приложены.</p>'}</div>`;
+  const canDecide = ['ACCOUNTANT', 'ADMIN'].includes(currentUser().role) && waybill.status === 'ACCOUNTING_REVIEW';
+  document.querySelector('#accountingWaybillActions').innerHTML = canDecide ? `
+    <button class="primary" type="button" data-accounting-status="${waybill.id}:PROCESSED">Обработано</button>
+    <button class="ghost" type="button" data-accounting-status="${waybill.id}:DRIVER_CORRECTION">Вернуть водителю</button>
+    <button class="danger" type="button" data-accounting-status="${waybill.id}:REJECTED">Отклонить</button>` : '';
+  dialog.querySelectorAll('[data-accounting-download-file]').forEach((button) => {
+    button.addEventListener('click', () => downloadWaybillFile(button.dataset.accountingDownloadFile));
+  });
+  dialog.querySelectorAll('[data-preview-file]').forEach((button) => {
+    button.addEventListener('click', () => openWaybillFile(button.dataset.previewFile));
+  });
+  dialog.querySelector('[data-details-files]').addEventListener('click', () => {
+    dialog.close();
+    openWaybillFiles(waybill.id);
+  });
+  dialog.querySelectorAll('[data-accounting-status]').forEach((button) => {
     button.addEventListener('click', () => {
-      const [waybillId, status] = button.dataset.status.split(':');
-      runAction(() => api(`/api/waybills/${waybillId}/status`, {
-        method: 'PATCH',
-        body: { status }
-      }));
+      const [id, status] = button.dataset.accountingStatus.split(':');
+      dialog.close();
+      runAction(() => api(`/api/waybills/${id}/status`, { method: 'PATCH', body: { status } }));
     });
   });
+  dialog.showModal();
 }
 
 function renderUserManagement() {
@@ -780,6 +889,24 @@ function renderReports() {
   fillReportOptions('#reportDriver', state.data.users.filter((user) =>
     ['DRIVER', 'FLEET_MANAGER'].includes(user.role)
   ), (user) => user.name, 'Все водители');
+  renderReportPreview();
+}
+
+function renderReportPreview() {
+  const panel = document.querySelector('#reportPreviewPanel');
+  const report = state.reportPreview;
+  panel.hidden = !report;
+  if (!report) return;
+  document.querySelector('#reportPreviewSummary').textContent = report.rows.length
+    ? `Найдено путевых листов: ${report.rows.length}.`
+    : 'По выбранным фильтрам путевые листы не найдены.';
+  document.querySelector('#reportPreviewTable').innerHTML = report.rows.map((row) => `<tr>
+    <td>${formatDate(row.waybillDate)}</td><td>${escapeHtml(row.waybillId)}</td><td>${escapeHtml(row.plateNumber)}</td>
+    <td>${escapeHtml(row.vehicleTitle)}</td><td>${escapeHtml(row.driverName)}</td><td>${escapeHtml(row.status)}</td>
+    <td>${formatReportNumber(row.startOdometer, 'км')}</td><td>${formatReportNumber(row.distanceKm, 'км')}</td><td>${formatReportNumber(row.endOdometer, 'км')}</td>
+    <td>${formatReportNumber(row.startFuel, 'л')}</td><td>${formatReportNumber(row.fuelAdded, 'л')}</td><td>${formatReportNumber(row.fuelSpent, 'л')}</td><td>${formatReportNumber(row.endFuel, 'л')}</td>
+    <td>${escapeHtml(row.note || '—')}</td>
+  </tr>`).join('');
 }
 
 function renderAudit() {
@@ -797,16 +924,21 @@ function bindNavigation() {
   document.querySelectorAll('.nav-item').forEach((button) => {
     button.addEventListener('click', () => {
       state.view = button.dataset.view;
+      state.takeVehicleStatusSuppressed = false;
       renderChrome();
+      if (state.view === 'vehicles') renderVehicles();
+      if (state.view === 'takeVehicle') renderAvailableVehicles();
     });
   });
   document.querySelector('#actorSelect').addEventListener('change', (event) => {
     state.actorId = event.target.value;
+    state.takeVehicleStatusSuppressed = false;
     refresh().catch((error) => showMessage(error.message, true));
   });
 }
 
 function bindForms() {
+  bindTransferVehiclePhotoInputs();
   const registryFilters = document.querySelector('#registryFilters');
   const vehicleSearch = registryFilters.elements.search;
   const updateRegistryFilters = (event) => {
@@ -930,6 +1062,7 @@ function bindForms() {
         endOdometer: Number(form.get('endOdometer')),
         fuelAdded: Number(form.get('fuelAdded')),
         endFuel: Number(form.get('endFuel')),
+        route: form.get('route'),
         note: form.get('note')
       }
     }));
@@ -950,7 +1083,21 @@ function bindForms() {
     }
   });
   document.querySelector('#closeWaybillFiles').addEventListener('click', closeWaybillFiles);
+  document.querySelector('#closeAccountingWaybill').addEventListener('click', () => document.querySelector('#accountingWaybillDialog').close());
+  document.querySelector('#closeFilePreview').addEventListener('click', closeWaybillFilePreview);
+  document.querySelector('#filePreviewDialog').addEventListener('close', clearWaybillFilePreview);
   document.querySelector('#closeTransferDetails').addEventListener('click', () => document.querySelector('#transferDetailsDialog').close());
+
+  document.querySelectorAll('[data-waybill-sort]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = button.dataset.waybillSort;
+      state.myWaybillsSort = {
+        key,
+        direction: state.myWaybillsSort.key === key && state.myWaybillsSort.direction === 'asc' ? 'desc' : 'asc'
+      };
+      renderWaybills();
+    });
+  });
 
   document.querySelector('#transferForm').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -959,6 +1106,10 @@ function bindForms() {
     if (!vehicle) {
       showMessage('За вами сейчас не закреплен автомобиль. Передать автомобиль другому водителю нельзя.', true);
       return;
+    }
+    const missingDates = missingWaybillDatesForReturn(vehicle.id);
+    if (missingDates.length > 0) {
+      return showMessage(transferWaybillMissingMessage(missingDates), true);
     }
     const recipientName = userName(form.get('toDriverId'));
     await createTransferWithEvidence('/api/transfers/driver-to-driver', {
@@ -1003,13 +1154,19 @@ function bindForms() {
       endOdometer: Number(form.get('endOdometer')),
       fuelAdded: Number(form.get('fuelAdded')),
       endFuel: Number(form.get('endFuel')),
+      route: form.get('route'),
       note: form.get('note')
     });
   });
 
   document.querySelector('#reportForm').addEventListener('submit', (event) => {
     event.preventDefault();
-    downloadReport(event.submitter?.dataset.format ?? 'xlsx');
+    const format = event.submitter?.dataset.format ?? 'xlsx';
+    if (format === 'preview') {
+      showWaybillReport();
+      return;
+    }
+    downloadReport(format);
   });
 }
 
@@ -1072,6 +1229,29 @@ async function downloadReport(format) {
   }
 }
 
+async function showWaybillReport() {
+  try {
+    const params = reportParams();
+    const headers = {};
+    if (state.session.authMode === 'local') headers['x-autopark-user-id'] = state.actorId;
+    const response = await fetch(`/api/reports/waybills?${params}`, { headers, credentials: 'same-origin' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error ?? 'Не удалось сформировать список путевых листов.');
+    state.reportPreview = payload;
+    renderReportPreview();
+  } catch (error) {
+    showMessage(error.message, true);
+  }
+}
+
+function reportParams() {
+  const params = new URLSearchParams();
+  for (const [key, value] of new FormData(document.querySelector('#reportForm'))) {
+    if (value) params.set(key, value);
+  }
+  return params;
+}
+
 function handoverFromForm(form) {
   return { odometer: Number(form.get('odometer')), documents: form.getAll('documents'), comment: form.get('comment') };
 }
@@ -1097,16 +1277,51 @@ async function createTransferWithEvidence(path, body, formElement, successMessag
     }
     showMessage(successMessage);
     formElement.reset();
+    resetTransferVehiclePhotoInput(formElement);
     render();
   } catch (error) {
     showMessage(error.message, true);
   }
 }
 
-async function runAction(action, successMessage = 'Готово') {
+function bindTransferVehiclePhotoInputs() {
+  document.querySelectorAll('input[name="vehiclePhotos"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const previousFiles = input.accumulatedFiles ?? [];
+      const selectedFiles = [...input.files];
+      const files = [...previousFiles, ...selectedFiles].filter((file, index, items) =>
+        items.findIndex((item) => item.name === file.name && item.size === file.size && item.lastModified === file.lastModified) === index
+      );
+      const transfer = new DataTransfer();
+      files.forEach((file) => transfer.items.add(file));
+      input.files = transfer.files;
+      input.accumulatedFiles = files;
+      renderTransferVehiclePhotoCount(input);
+    });
+  });
+}
+
+function resetTransferVehiclePhotoInput(formElement) {
+  const input = formElement.querySelector('input[name="vehiclePhotos"]');
+  if (!input) return;
+  input.accumulatedFiles = [];
+  renderTransferVehiclePhotoCount(input);
+}
+
+function renderTransferVehiclePhotoCount(input) {
+  const hint = input.closest('.field')?.querySelector('[data-vehicle-photo-count]');
+  if (!hint) return;
+  const count = input.files.length;
+  hint.textContent = count >= 4
+    ? `Выбрано фотографий: ${count}. Минимум для передачи соблюден.`
+    : `Выбрано фотографий: ${count}. Добавьте еще ${4 - count}.`;
+}
+
+async function runAction(action, successMessage = 'Готово', beforeRender) {
   try {
     state.data = await action();
     showMessage(successMessage);
+    beforeRender?.();
     render();
     return true;
   } catch (error) {
@@ -1191,14 +1406,7 @@ async function transferPhotoUrl(fileId) {
 async function downloadWaybillFile(fileId) {
   try {
     const file = state.data.waybillFiles.find((item) => item.id === fileId);
-    const headers = {};
-    if (state.session.authMode === 'local') headers['x-autopark-user-id'] = state.actorId;
-    const response = await fetch(`/api/waybill-files/${fileId}`, { headers, credentials: 'same-origin' });
-    if (!response.ok) {
-      const payload = await response.json();
-      throw new Error(payload.error ?? 'Не удалось скачать файл.');
-    }
-    const blob = await response.blob();
+    const blob = await fetchWaybillFileBlob(fileId, 'Не удалось скачать файл.');
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -1211,6 +1419,75 @@ async function downloadWaybillFile(fileId) {
   } catch (error) {
     showMessage(error.message, true);
   }
+}
+
+async function openWaybillFile(fileId) {
+  try {
+    const file = state.data.waybillFiles.find((item) => item.id === fileId);
+    if (!file) throw new Error('Файл путевого листа не найден.');
+    const supportedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!supportedMimeTypes.includes(file.mimeType)) {
+      throw new Error('Этот тип файла нельзя открыть в приложении. Скачайте файл, чтобы открыть его в соответствующей программе.');
+    }
+
+    const blob = await fetchWaybillFileBlob(fileId, 'Не удалось открыть файл.');
+    clearWaybillFilePreview();
+    const previewBlob = new Blob([await blob.arrayBuffer()], { type: file.mimeType });
+    state.filePreviewUrl = URL.createObjectURL(previewBlob);
+    document.querySelector('#filePreviewTitle').textContent = file.originalName;
+    const content = document.querySelector('#filePreviewContent');
+    content.replaceChildren();
+    const preview = document.createElement(file.mimeType === 'application/pdf' ? 'iframe' : 'img');
+    preview.src = state.filePreviewUrl;
+    preview.className = file.mimeType === 'application/pdf' ? 'file-preview-pdf' : 'file-preview-image';
+    preview.alt = file.originalName;
+    if (file.mimeType === 'application/pdf') preview.title = file.originalName;
+    preview.addEventListener('error', async () => {
+      if (file.mimeType.startsWith('image/') && preview.dataset.dataUrlAttempted !== 'true') {
+        preview.dataset.dataUrlAttempted = 'true';
+        preview.src = await blobAsDataUrl(previewBlob);
+        return;
+      }
+      content.replaceChildren();
+      const message = document.createElement('p');
+      message.textContent = 'Не удалось отобразить файл. Возможно, он поврежден или его содержимое не соответствует указанному формату.';
+      content.append(message);
+    });
+    content.append(preview);
+    document.querySelector('#filePreviewDialog').showModal();
+  } catch (error) {
+    showMessage(error.message, true);
+  }
+}
+
+async function fetchWaybillFileBlob(fileId, fallbackMessage) {
+  const headers = {};
+  if (state.session.authMode === 'local') headers['x-autopark-user-id'] = state.actorId;
+  const response = await fetch(`/api/waybill-files/${fileId}`, { headers, credentials: 'same-origin' });
+  if (!response.ok) {
+    const payload = await response.json();
+    throw new Error(payload.error ?? fallbackMessage);
+  }
+  return response.blob();
+}
+
+function blobAsDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(reader.result));
+    reader.addEventListener('error', () => reject(new Error('Не удалось подготовить файл к просмотру.')));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function closeWaybillFilePreview() {
+  document.querySelector('#filePreviewDialog').close();
+}
+
+function clearWaybillFilePreview() {
+  if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+  state.filePreviewUrl = null;
+  document.querySelector('#filePreviewContent').replaceChildren();
 }
 
 function fillOptions(selector, items, labeler) {
@@ -1327,6 +1604,15 @@ function soldAtFor(vehicle) {
 function formatNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number.toLocaleString('ru-RU') : '-';
+}
+
+function formatWaybillEndValue(value, unit) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${formatNumber(number)} ${unit}` : '—';
+}
+
+function formatReportNumber(value, unit) {
+  return Number.isFinite(Number(value)) ? `${formatNumber(value)} ${unit}` : '—';
 }
 
 function formatDate(value) {
