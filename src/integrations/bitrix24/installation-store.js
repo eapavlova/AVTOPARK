@@ -1,70 +1,21 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
 import pg from 'pg';
+import { databaseSslFrom } from '../../store-factory.js';
 import { TokenCipher } from './token-cipher.js';
 
 const { Pool } = pg;
 
 export function createBitrixInstallationStore(environment = process.env) {
   if (!environment.BITRIX_TOKEN_ENCRYPTION_KEY) return null;
+  if (!environment.DATABASE_URL) {
+    throw new Error('Для хранения установок Bitrix24 задайте DATABASE_URL.');
+  }
   const cipher = new TokenCipher(environment.BITRIX_TOKEN_ENCRYPTION_KEY);
-  const driver = environment.STORAGE_DRIVER ?? (environment.DATABASE_URL ? 'postgres' : 'json');
-  if (driver === 'postgres') {
-    return new PostgresBitrixInstallationStore(environment.DATABASE_URL, cipher);
-  }
-  return new FileBitrixInstallationStore(environment.BITRIX_AUTH_FILE, cipher);
-}
-
-export class FileBitrixInstallationStore {
-  constructor(filePath = './data/bitrix-installations.enc.json', cipher) {
-    this.filePath = resolve(filePath);
-    this.cipher = cipher;
-    this.pendingUpdate = Promise.resolve();
-  }
-
-  async get(memberId) {
-    const records = await this.loadRecords();
-    const record = records[memberId];
-    return record ? { ...record, ...this.cipher.decrypt(record.tokenBundle), tokenBundle: undefined } : null;
-  }
-
-  async save(installation) {
-    const operation = this.pendingUpdate.then(async () => {
-      const records = await this.loadRecords();
-      const now = new Date().toISOString();
-      records[installation.memberId] = {
-        memberId: installation.memberId,
-        domain: installation.domain,
-        expiresAt: installation.expiresAt ?? null,
-        installedByBitrixUserId: installation.installedByBitrixUserId ?? null,
-        installedAt: records[installation.memberId]?.installedAt ?? now,
-        updatedAt: now,
-        tokenBundle: this.cipher.encrypt({
-          accessToken: installation.accessToken,
-          refreshToken: installation.refreshToken
-        })
-      };
-      await mkdir(dirname(this.filePath), { recursive: true });
-      await writeFile(this.filePath, JSON.stringify(records, null, 2), { encoding: 'utf8', mode: 0o600 });
-      return this.get(installation.memberId);
-    });
-    this.pendingUpdate = operation.catch(() => undefined);
-    return operation;
-  }
-
-  async loadRecords() {
-    try {
-      return JSON.parse(await readFile(this.filePath, 'utf8'));
-    } catch (error) {
-      if (error.code === 'ENOENT') return {};
-      throw error;
-    }
-  }
+  return new PostgresBitrixInstallationStore(environment.DATABASE_URL, cipher, databaseSslFrom(environment));
 }
 
 export class PostgresBitrixInstallationStore {
-  constructor(connectionString, cipher) {
-    this.pool = new Pool({ connectionString, max: 3, idleTimeoutMillis: 30_000 });
+  constructor(connectionString, cipher, ssl) {
+    this.pool = new Pool({ connectionString, ssl, max: 3, idleTimeoutMillis: 30_000 });
     this.cipher = cipher;
   }
 

@@ -5,9 +5,10 @@ import { runMigrations } from './db/migrate.js';
 const { Pool } = pg;
 
 export class PostgresStore {
-  static async connect({ connectionString, seedDemo = false }) {
+  static async connect({ connectionString, seedDemo = false, ssl }) {
     const pool = new Pool({
       connectionString,
+      ssl,
       max: 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000

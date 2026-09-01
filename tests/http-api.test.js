@@ -8,7 +8,10 @@ import { fileURLToPath } from 'node:url';
 
 const projectDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
-test('HTTP API protects the complete waybill attachment lifecycle', { timeout: 20_000 }, async () => {
+test('HTTP API protects the complete waybill attachment lifecycle', {
+  timeout: 20_000,
+  skip: !process.env.TEST_DATABASE_URL
+}, async () => {
   const tempRoot = await mkdtemp(join(tmpdir(), 'autopark-http-'));
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: projectDir,
@@ -16,10 +19,9 @@ test('HTTP API protects the complete waybill attachment lifecycle', { timeout: 2
       ...process.env,
       PORT: '0',
       AUTH_MODE: 'local',
-      STORAGE_DRIVER: 'json',
-      DATA_FILE: join(tempRoot, 'state.json'),
+      DATABASE_URL: process.env.TEST_DATABASE_URL,
+      SEED_DEMO_DATA: 'true',
       FILE_STORAGE_DIR: join(tempRoot, 'files'),
-      DATABASE_URL: '',
       BITRIX_CLIENT_ID: '',
       BITRIX_CLIENT_SECRET: '',
       BITRIX_TOKEN_ENCRYPTION_KEY: ''

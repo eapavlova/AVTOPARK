@@ -1,19 +1,20 @@
 import { PostgresStore } from './postgres-store.js';
-import { JsonStore } from './storage.js';
 
 export async function createStore(environment = process.env) {
-  const driver = environment.STORAGE_DRIVER ?? (environment.DATABASE_URL ? 'postgres' : 'json');
-  if (driver === 'postgres') {
-    if (!environment.DATABASE_URL) {
-      throw new Error('Для STORAGE_DRIVER=postgres задайте DATABASE_URL.');
-    }
-    return PostgresStore.connect({
-      connectionString: environment.DATABASE_URL,
-      seedDemo: environment.SEED_DEMO_DATA !== 'false'
-    });
+  if (!environment.DATABASE_URL) {
+    throw new Error('Задайте DATABASE_URL: Autopark использует только PostgreSQL.');
   }
-  if (driver === 'json') {
-    return new JsonStore(environment.DATA_FILE);
-  }
-  throw new Error(`Неизвестный STORAGE_DRIVER: ${driver}`);
+  return PostgresStore.connect({
+    connectionString: environment.DATABASE_URL,
+    seedDemo: environment.SEED_DEMO_DATA === 'true',
+    ssl: databaseSslFrom(environment)
+  });
+}
+
+export function databaseSslFrom(environment) {
+  const value = String(environment.DATABASE_SSL ?? '').toLowerCase();
+  if (!value || value === 'false' || value === 'disable') return undefined;
+  if (value === 'true' || value === 'require') return { rejectUnauthorized: false };
+  if (value === 'verify-full') return { rejectUnauthorized: true };
+  throw new Error('DATABASE_SSL может иметь значения disable, require или verify-full.');
 }

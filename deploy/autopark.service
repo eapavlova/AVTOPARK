@@ -1,0 +1,21 @@
+[Unit]
+Description=Autopark application
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=autopark
+Group=autopark
+WorkingDirectory=/opt/autopark
+EnvironmentFile=/etc/autopark/autopark.env
+ExecStart=/usr/bin/npm start
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/autopark/files
+
+[Install]
+WantedBy=multi-user.target
